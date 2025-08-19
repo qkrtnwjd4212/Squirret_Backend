@@ -5,6 +5,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 public class FSRDataDTO {
+    private String side;
     private float ratio1;
     private float ratio2;
     private float ratio3;

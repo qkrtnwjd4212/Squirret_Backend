@@ -6,6 +6,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
@@ -21,14 +23,10 @@ public class FSRController {
         return ResponseEntity.ok("Data received successfully!");
     }
 
-    // GET 요청 시 데이터 전송하는 엔드포인트
+    // GET 요청 시 데이터 전송하는 엔드포인트 (좌/우 데이터 모두 포함)
     @GetMapping("/fsr_data/latest")
-    public ResponseEntity<FSRDataDTO> getLatestFsrData() {
-        // 서비스에 저장된 가장 최신 데이터를 가져옵니다.
-        FSRDataDTO latestData = fsrDataService.getLatestData();
-
-        // 최신 데이터를 JSON 형태로 앱에 응답합니다.
-        return ResponseEntity.ok(latestData);
+    public ResponseEntity<Map<String, FSRDataDTO>> getLatestFsrData() {
+        return ResponseEntity.ok(fsrDataService.getLatestInsoleData());
     }
 
 }
