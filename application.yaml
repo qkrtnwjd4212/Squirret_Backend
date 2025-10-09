@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/squirretDB
+    url: jdbc:mysql://squirret-mysql:3306/squirretDB
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: 1234
@@ -53,6 +53,6 @@ spring:
 
 # JWT 설정
 jwt:
-  secret: ${JWT_SECRET:mySecretKey123456789012345678901234567890}
+  secret: mySecretKey123456789012345678901234567890
   expiration: 86400000  # 24시간 (밀리초)
   refresh-expiration: 604800000  # 7일 (밀리초)
