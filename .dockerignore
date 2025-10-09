@@ -1,0 +1,28 @@
+# Build 결과물
+build/
+bin/
+target/
+.gradle/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# 기타
+README.md
+.env
+

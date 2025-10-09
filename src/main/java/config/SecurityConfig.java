@@ -67,10 +67,20 @@ public class SecurityConfig {
             // JWT 토큰 생성
             String userId = oauth2User.getAttribute("id");
             String email = oauth2User.getAttribute("email");
-            String token = jwtService.generateToken(UUID.fromString(userId), email);
+            String accessToken = jwtService.generateToken(UUID.fromString(userId), email);
+            String refreshToken = jwtService.generateRefreshToken(UUID.fromString(userId), email);
             
-            // 프론트엔드로 리다이렉트 (토큰 포함)
-            response.sendRedirect("http://localhost:3000/auth/callback?token=" + token);
+            // 클라이언트 타입에 따라 다른 리다이렉트
+            // 네이티브 앱: squirret://auth/callback?token=...
+            // 웹: http://localhost:3000/auth/callback?token=...
+            String redirectUrl = request.getParameter("redirect_uri");
+            if (redirectUrl == null || redirectUrl.isEmpty()) {
+                redirectUrl = "squirret://auth/callback"; // 기본값: 모바일 앱
+            }
+            
+            response.sendRedirect(redirectUrl + 
+                "?access_token=" + accessToken + 
+                "&refresh_token=" + refreshToken);
         };
     }
     
