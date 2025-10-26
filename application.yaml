@@ -1,4 +1,9 @@
+server:
+  port: 8080
+
 spring:
+  application:
+    name: squirretbackend
   datasource:
     url: jdbc:mysql://squirret-mysql:3306/squirretDB
     driver-class-name: com.mysql.cj.jdbc.Driver
