@@ -1,0 +1,345 @@
+openapi: 3.0.3
+info:
+  title: Squirret Backend API
+  version: 1.0.0
+  description: |
+    Squirret 백엔드의 인증 및 피트니스 데이터 API 명세.
+servers:
+  - url: http://localhost:8080
+    description: Local server
+
+tags:
+  - name: Auth
+    description: 인증 및 토큰 관리
+  - name: Fitness
+    description: 피트니스 데이터 CRUD
+
+paths:
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: 현재 로그인 사용자 정보 조회
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: 미인증
+        '404':
+          description: 사용자 없음
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: 리프레시 토큰으로 액세스/리프레시 토큰 재발급
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponseDto'
+        '400':
+          description: 파라미터 누락
+        '401':
+          description: 토큰 유효하지 않음 또는 처리 오류
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: 로그아웃 (클라이언트 토큰 삭제)
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 로그아웃되었습니다.
+
+  /api/fitness/save:
+    post:
+      tags: [Fitness]
+      summary: 사용자 피트니스 데이터 생성/저장
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserFitnessDataDto'
+      responses:
+        '201':
+          description: 생성됨
+          content:
+            text/plain:
+              schema:
+                type: string
+        '400':
+          description: 잘못된 요청 (userID 누락)
+
+  /api/fitness/{userId}:
+    get:
+      tags: [Fitness]
+      summary: 사용자 피트니스 데이터 조회
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserFitnessDataDto'
+        '404':
+          description: 없음
+    put:
+      tags: [Fitness]
+      summary: 사용자 피트니스 데이터 전체 업데이트
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserFitnessDataDto'
+      responses:
+        '200':
+          description: 성공
+          content:
+            text/plain:
+              schema:
+                type: string
+        '400':
+          description: 경로/본문 ID 불일치
+        '404':
+          description: 없음
+    delete:
+      tags: [Fitness]
+      summary: 사용자 피트니스 데이터 삭제
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 성공
+          content:
+            text/plain:
+              schema:
+                type: string
+        '404':
+          description: 없음
+
+  /api/fitness/{userId}/workouts/{workoutId}:
+    get:
+      tags: [Fitness]
+      summary: 특정 운동 기록 조회
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: workoutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutRecordDto'
+        '404':
+          description: 없음
+    put:
+      tags: [Fitness]
+      summary: 특정 운동 기록 업데이트
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: workoutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkoutRecordDto'
+      responses:
+        '200':
+          description: 성공
+          content:
+            text/plain:
+              schema:
+                type: string
+        '400':
+          description: 경로/본문 ID 불일치
+        '404':
+          description: 없음
+    delete:
+      tags: [Fitness]
+      summary: 특정 운동 기록 삭제
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: workoutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 성공
+          content:
+            text/plain:
+              schema:
+                type: string
+        '404':
+          description: 없음
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+          description: 리프레시 토큰
+    AuthResponseDto:
+      type: object
+      properties:
+        message:
+          type: string
+        accessToken:
+          type: string
+          nullable: true
+        refreshToken:
+          type: string
+          nullable: true
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        profileImageUrl:
+          type: string
+          nullable: true
+        provider:
+          $ref: '#/components/schemas/AuthProvider'
+    AuthProvider:
+      type: string
+      description: OAuth2 제공자
+      enum: [KAKAO, GOOGLE, APPLE]
+    DifficultyType:
+      type: string
+      enum: [EASY, MEDIUM, HARD]
+    WorkoutRecordDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        recordCreatedAt:
+          type: string
+          format: date-time
+          example: '2023-01-15T10:30:00Z'
+        allCount:
+          type: integer
+          format: int32
+          description: 스쿼트 수
+        totalCalories:
+          type: number
+          format: double
+        difficultyType:
+          $ref: '#/components/schemas/DifficultyType'
+        durationMinutes:
+          type: integer
+          format: int32
+      required: [id, recordCreatedAt, allCount, totalCalories, difficultyType, durationMinutes]
+    UserFitnessDataDto:
+      type: object
+      properties:
+        userID:
+          type: string
+          format: uuid
+        acornCount:
+          type: integer
+          format: int32
+        workoutRecordList:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkoutRecordDto'
+      required: [userID, acornCount, workoutRecordList]
