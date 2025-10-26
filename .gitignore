@@ -35,4 +35,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Docker 빌드 산출물 ###
+*.tar
+*.tar.gz
+
+### 환경 변수 ###
 .env
