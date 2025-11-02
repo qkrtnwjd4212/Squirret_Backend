@@ -4,6 +4,19 @@ server:
 spring:
   application:
     name: squirretbackend
+  datasource:
+    url: jdbc:mysql://52.91.9.98:3306/squirretDB
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: 1234
+  jpa:
+    database-platform: org.hibernate.dialect.MySQLDialect
+    properties:
+      hibernate:
+        show-sql: true
+        format-sql: true
+    hibernate:
+      ddl-auto: create-drop
   security:
     oauth2:
       client:
@@ -66,6 +79,12 @@ spring:
             token-uri: https://oauth2.googleapis.com/token
             user-info-uri: https://www.googleapis.com/oauth2/v2/userinfo
             user-name-attribute: id
+
+# JWT 설정
+jwt:
+  secret: mySecretKey123456789012345678901234567890
+  expiration: 86400000  # 24시간 (밀리초)
+  refresh-expiration: 604800000  # 7일 (밀리초)
 
 logging:
   level:
