@@ -1,14 +1,14 @@
 server:
-  port: 8080
+  port: 8082
 
 spring:
   application:
     name: squirretbackend
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql:3306/squirretDB?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true}
+    url: jdbc:mysql://52.91.9.98:3306/squirretDB
     driver-class-name: com.mysql.cj.jdbc.Driver
-    username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:1234}
+    username: root
+    password: 1234
   jpa:
     database-platform: org.hibernate.dialect.MySQLDialect
     properties:
@@ -16,7 +16,7 @@ spring:
         show-sql: true
         format-sql: true
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO:update}
+      ddl-auto: create-drop
   security:
     oauth2:
       client:
@@ -82,9 +82,9 @@ spring:
 
 # JWT 설정
 jwt:
-  secret: ${JWT_SECRET:mySecretKey123456789012345678901234567890}
-  expiration: ${JWT_EXPIRATION:86400000}  # 24시간 (밀리초)
-  refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}  # 7일 (밀리초)
+  secret: mySecretKey123456789012345678901234567890
+  expiration: 86400000  # 24시간 (밀리초)
+  refresh-expiration: 604800000  # 7일 (밀리초)
 
 logging:
   level:
