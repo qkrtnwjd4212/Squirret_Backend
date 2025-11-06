@@ -5,7 +5,7 @@ spring:
   application:
     name: squirretbackend
   datasource:
-    url: jdbc:mysql://52.91.9.98:3306/squirretDB
+    url: jdbc:mysql://54.86.161.187:3306/squirretDB
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: 1234
@@ -16,7 +16,7 @@ spring:
         show-sql: true
         format-sql: true
     hibernate:
-      ddl-auto: create-drop	# 실서버에서는 validate로 설정해야 한다!
+      ddl-auto: update	# 실서버에서는 validate로 설정해야 한다!
   security:
     oauth2:
       client:
