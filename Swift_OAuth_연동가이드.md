@@ -35,7 +35,7 @@
 
 ```swift
 // 기본 URL
-let baseURL = "http://52.91.9.98:8080"
+let baseURL = "http://54.86.161.187:8080"
 
 // 각 제공자별 OAuth 시작 URL
 let kakaoLoginURL = "\(baseURL)/oauth2/authorization/kakao"
@@ -56,7 +56,7 @@ let appleLoginURL = "\(baseURL)/oauth2/authorization/apple"
 
 백엔드가 자동으로 처리하는 콜백 URL (앱에서 호출 불필요):
 ```
-http://52.91.9.98:8080/login/oauth2/code/{provider}
+http://54.86.161.187:8080/login/oauth2/code/{provider}
 ```
 
 ---
@@ -151,7 +151,7 @@ import AuthenticationServices
 class OAuthManager {
     static let shared = OAuthManager()
     
-    private let baseURL = "http://52.91.9.98:8080"
+    private let baseURL = "http://54.86.161.187:8080"
     private let callbackURLScheme = "squirret"
     
     // MARK: - OAuth 로그인
@@ -276,7 +276,7 @@ enum OAuthError: Error {
 class APIManager {
     static let shared = APIManager()
     
-    private let baseURL = "http://52.91.9.98:8080"
+    private let baseURL = "http://54.86.161.187:8080"
     
     func fetchUserInfo(completion: @escaping (Result<User, Error>) -> Void) {
         guard let accessToken = KeychainManager.shared.load(for: "accessToken") else {
@@ -624,7 +624,7 @@ class LoginViewModel: ObservableObject {
 
 ### OAuth 로그인 URL:
 ```
-http://52.91.9.98:8080/oauth2/authorization/{provider}
+http://54.86.161.187:8080/oauth2/authorization/{provider}
 ```
 
 ### 콜백 URL 스킴:
