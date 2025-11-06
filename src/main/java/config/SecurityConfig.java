@@ -1,5 +1,6 @@
 package config;
 
+import com.squirret.squirretbackend.security.CustomOAuth2UserService;
 import com.squirret.squirretbackend.security.JwtAuthenticationFilter;
 import com.squirret.squirretbackend.service.JwtService;
 import lombok.RequiredArgsConstructor;
@@ -9,7 +10,10 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import org.springframework.web.cors.CorsConfiguration;
@@ -38,6 +42,8 @@ public class SecurityConfig {
             .httpBasic(AbstractHttpConfigurer::disable)
             .logout(AbstractHttpConfigurer::disable)
             .authorizeHttpRequests(auth -> auth
+                // 웹소켓 경로 명시적으로 허용
+                .requestMatchers("/ws/**").permitAll()
                 // 모든 요청을 기본적으로 permitAll로 설정 (인증 없이 접근 가능)
                 .anyRequest().permitAll()
             )
