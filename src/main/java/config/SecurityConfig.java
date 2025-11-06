@@ -15,7 +15,6 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -27,11 +26,11 @@ import java.util.UUID;
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
-    
+
     private final JwtService jwtService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final CustomOAuth2UserService customOAuth2UserService;
-    
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -39,32 +38,13 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // FSR 데이터 API는 가장 먼저 명시적으로 permitAll 설정 (우선순위 높게)
-                .requestMatchers("/api/fsr_data/**").permitAll()
                 .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**").permitAll()
                 .requestMatchers("/api/fitness/**").authenticated()
                 .anyRequest().authenticated()
             )
-            // FSR 데이터 API는 인증 실패 시 리다이렉트하지 않도록 설정
-            .exceptionHandling(exceptions -> exceptions
-                .authenticationEntryPoint((request, response, authException) -> {
-                    String path = request.getRequestURI();
-                    // FSR 데이터 API는 permitAll이므로 인증 예외가 발생하면 안 되지만, 
-                    // 만약 발생한다면 리다이렉트 대신 401 반환
-                    if (path.startsWith("/api/fsr_data/")) {
-                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        response.setContentType("application/json");
-                        response.getWriter().write("{\"error\":\"Unauthorized\"}");
-                    } else {
-                        // 다른 경로는 기본 동작 (로그인 페이지로 리다이렉트)
-                        response.sendRedirect("/login");
-                    }
-                })
-            )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .oauth2Login(oauth2 -> oauth2
                 .loginPage("/")
-                .defaultSuccessUrl("/", true)
                 .userInfoEndpoint(userInfo -> userInfo
                     .oidcUserService(oidcUserService())
                     .userService(customOAuth2UserService))
@@ -73,18 +53,17 @@ public class SecurityConfig {
             
         return http.build();
     }
-    
+
     @Bean
     public OidcUserService oidcUserService() {
         return new OidcUserService();
     }
-    
+
     @Bean
     public AuthenticationSuccessHandler authenticationSuccessHandler() {
         return (request, response, authentication) -> {
             OAuth2User oauth2User = (OAuth2User) authentication.getPrincipal();
-            
-            // JWT 토큰 생성
+
             String userId = oauth2User.getAttribute("id");
             String email = oauth2User.getAttribute("email");
             String accessToken = jwtService.generateToken(UUID.fromString(userId), email);
@@ -104,6 +83,18 @@ public class SecurityConfig {
         };
     }
     
+
+            String redirectUrl = request.getParameter("redirect_uri");
+            if (redirectUrl == null || redirectUrl.isEmpty()) {
+                redirectUrl = "squirret://auth/callback";
+            }
+
+            response.sendRedirect(redirectUrl +
+                "?access_token=" + accessToken +
+                "&refresh_token=" + refreshToken);
+        };
+    }
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
@@ -111,7 +102,6 @@ public class SecurityConfig {
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
-        
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
