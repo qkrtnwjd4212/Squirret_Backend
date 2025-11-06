@@ -50,7 +50,7 @@ public class SecurityConfig {
                     .userService(customOAuth2UserService))
                 .successHandler(authenticationSuccessHandler())
             );
-
+            
         return http.build();
     }
 
@@ -68,6 +68,21 @@ public class SecurityConfig {
             String email = oauth2User.getAttribute("email");
             String accessToken = jwtService.generateToken(UUID.fromString(userId), email);
             String refreshToken = jwtService.generateRefreshToken(UUID.fromString(userId), email);
+            
+            // 클라이언트 타입에 따라 다른 리다이렉트
+            // 네이티브 앱: squirret://auth/callback?token=...
+            // 웹: http://localhost:3000/auth/callback?token=...
+            String redirectUrl = request.getParameter("redirect_uri");
+            if (redirectUrl == null || redirectUrl.isEmpty()) {
+                redirectUrl = "squirret://auth/callback"; // 기본값: 모바일 앱
+            }
+            
+            response.sendRedirect(redirectUrl + 
+                "?access_token=" + accessToken + 
+                "&refresh_token=" + refreshToken);
+        };
+    }
+    
 
             String redirectUrl = request.getParameter("redirect_uri");
             if (redirectUrl == null || redirectUrl.isEmpty()) {
@@ -87,7 +102,6 @@ public class SecurityConfig {
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
