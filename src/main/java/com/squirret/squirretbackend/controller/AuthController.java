@@ -24,17 +24,13 @@ public class AuthController {
     @GetMapping("/")
     @ResponseBody
     public String index() {
-        // 아주 단순한 시작 페이지(링크 3개)
-        return """
-        <h1>Social Login</h1>
-        <ul>
-          <li><a href='/oauth2/authorization/kakao'>Login with Kakao</a></li>
-          <li><a href='/oauth2/authorization/naver'>Login with Naver</a></li>
-          <li><a href='/oauth2/authorization/apple'>Login with Apple</a></li>
-          <li><a href='/oauth2/authorization/google'>Login with Google</a></li>
-        </ul>
-        <p>로그인 후 <a href='/me'>/me</a>에서 세션 사용자 속성 확인</p>
-        """;
+        return "Squirret Backend API Server";
+    }
+
+    @GetMapping("/login")
+    @ResponseBody
+    public String login() {
+        return "Login page - OAuth login links removed";
     }
 
     @GetMapping("/me")

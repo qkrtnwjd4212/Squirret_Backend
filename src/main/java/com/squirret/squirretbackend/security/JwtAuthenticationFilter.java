@@ -31,17 +31,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
         
+        // Authorization 헤더가 없으면 바로 통과 (인증 없이 접근 가능)
         final String authHeader = request.getHeader("Authorization");
-        final String jwt;
-        final String userEmail;
-        
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
         
-        jwt = authHeader.substring(7);
-        userEmail = jwtService.extractUsername(jwt);
+        // Authorization 헤더가 있으면 JWT 인증 처리
+        final String jwt = authHeader.substring(7);
+        final String userEmail = jwtService.extractUsername(jwt);
         
         if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
