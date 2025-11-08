@@ -175,37 +175,33 @@
         }
         
         function displayData(data) {
-            // 왼발 데이터 표시
+            // 왼발 데이터 표시 - side가 없어도 모든 센서를 0으로 표시
             const leftDataDiv = document.getElementById('leftData');
-            if (data.left && data.left.side) {
-                let html = '';
-                for (let i = 1; i <= 6; i++) {
-                    const ratio = data.left[`ratio${i}`] || 0;
-                    html += `<div class="ratio-item">
-                        <span>센서 ${i}:</span>
-                        <strong>${ratio.toFixed(2)}%</strong>
-                    </div>`;
-                }
-                leftDataDiv.innerHTML = html;
-            } else {
-                leftDataDiv.innerHTML = '<p style="color: #6c757d;">데이터 없음</p>';
+            let html = '';
+            for (let i = 1; i <= 6; i++) {
+                const ratio = (data.left && data.left[`ratio${i}`] !== undefined) 
+                    ? data.left[`ratio${i}`] 
+                    : 0;
+                html += `<div class="ratio-item">
+                    <span>센서 ${i}:</span>
+                    <strong>${ratio.toFixed(2)}%</strong>
+                </div>`;
             }
+            leftDataDiv.innerHTML = html;
             
-            // 오른발 데이터 표시
+            // 오른발 데이터 표시 - side가 없어도 모든 센서를 0으로 표시
             const rightDataDiv = document.getElementById('rightData');
-            if (data.right && data.right.side) {
-                let html = '';
-                for (let i = 1; i <= 6; i++) {
-                    const ratio = data.right[`ratio${i}`] || 0;
-                    html += `<div class="ratio-item">
-                        <span>센서 ${i}:</span>
-                        <strong>${ratio.toFixed(2)}%</strong>
-                    </div>`;
-                }
-                rightDataDiv.innerHTML = html;
-            } else {
-                rightDataDiv.innerHTML = '<p style="color: #6c757d;">데이터 없음</p>';
+            html = '';
+            for (let i = 1; i <= 6; i++) {
+                const ratio = (data.right && data.right[`ratio${i}`] !== undefined) 
+                    ? data.right[`ratio${i}`] 
+                    : 0;
+                html += `<div class="ratio-item">
+                    <span>센서 ${i}:</span>
+                    <strong>${ratio.toFixed(2)}%</strong>
+                </div>`;
             }
+            rightDataDiv.innerHTML = html;
         }
         
         function connect() {

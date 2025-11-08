@@ -241,3 +241,114 @@ stomp.sendJSONForDict(dict: cmd as NSDictionary, toDestination: "/app/session.me
 - 백그라운드 전환 시 구독 재등록 필요할 수 있음
 - 실서비스는 `https/wss` 권장 및 보안 그룹(8080) 오픈 확인
 
+---
+
+## 9. FSR 깔창 데이터 연동
+
+### 9.1 ESP32 → 서버 업로드
+- 엔드포인트: `POST /api/fsr_data`
+- 바디(JSON):
+  ```json
+  {
+    "side": "left",
+    "ratio1": 12.3,
+    "ratio2": 8.4,
+    "ratio3": 5.1,
+    "ratio4": 20.0,
+    "ratio5": 32.5,
+    "ratio6": 21.7
+  }
+  ```
+- `side`: `"left"` 또는 `"right"`
+- `ratio1~6`: 각 센서 압력 비율(%)
+- 수신 즉시 최신값 저장, 최근 10초 히스토리에 누적, WebSocket(`/ws/fsr-data`) 브로드캐스트
+
+### 9.2 최신 데이터 조회
+- 엔드포인트: `GET /api/fsr_data/latest`
+- 응답 예시:
+  ```json
+  {
+    "left": {
+      "side": "left",
+      "ratio1": 15.2,
+      "ratio2": 7.5,
+      "ratio3": 3.1,
+      "ratio4": 25.4,
+      "ratio5": 30.0,
+      "ratio6": 18.8
+    },
+    "right": null
+  }
+  ```
+- 아직 데이터가 없는 발은 `null` 로 반환됩니다.
+
+### 9.3 실시간 스트리밍
+- 엔드포인트: `ws://<host>:8080/ws/fsr-data`
+- 연결 즉시 최신 스냅샷 1회 전송 → 이후 새 데이터 수신 시마다 JSON 브로드캐스트
+- 예시:
+  ```json
+  {
+    "left": { "side": "left", "ratio1": 12.0, "ratio2": 8.0, "ratio3": 4.5, "ratio4": 22.0, "ratio5": 35.0, "ratio6": 18.5 },
+    "right": { "side": "right", "ratio1": 10.0, "ratio2": 6.5, "ratio3": 5.2, "ratio4": 18.0, "ratio5": 33.0, "ratio6": 27.3 }
+  }
+  ```
+
+### 9.4 10초 구간 자세 피드백
+- 엔드포인트: `GET /api/fsr_data/feedback`
+- 서버는 최근 10초 평균값으로 하강(DESCENT)·상승(ASCENT) 규칙을 모두 평가한 뒤, 더 적은 문제를 가진 구간을 선택해 피드백을 제공합니다.
+- 응답 예시:
+  ```json
+  {
+    "left": {
+      "side": "left",
+      "stage": "DESCENT",
+      "status": "BAD",
+      "feedback": "체중이 앞쪽으로 쏠렸습니다. 뒤꿈치로 눌러주세요. 무릎이 안쪽으로 모이고 있습니다.",
+      "metrics": {
+        "front": 48.3,
+        "rear": 52.1,
+        "inner": 62.0,
+        "outer": 55.5,
+        "heel": 52.1,
+        "innerOuterDiff": 6.5
+      }
+    },
+    "right": {
+      "side": "right",
+      "stage": "ASCENT",
+      "status": "GOOD",
+      "feedback": "상승 구간 자세가 안정적입니다. 그대로 일어나세요.",
+      "metrics": {
+        "front": 50.2,
+        "rear": 49.7,
+        "inner": 49.8,
+        "outer": 50.1,
+        "heel": 49.7,
+        "innerOuterDiff": 0.3
+      }
+    }
+  }
+  ```
+- `status`: `GOOD`(양호), `BAD`(교정 필요), `NO_DATA`(10초 내 수집값 없음)
+- 하강 BAD 트리거: 앞쪽 40% 초과, 안쪽·바깥쪽 60% 초과, 뒤꿈치 체중 부족 등
+- 상승 BAD 트리거: 뒤꿈치 들림(<40%), 안쪽·바깥쪽 60% 초과, 앞뒤 균형 불량 등
+
+### 9.5 iOS 연동 흐름
+1. 최초 접속 시 `GET /api/fsr_data/latest` 로 스냅샷 확인
+2. 실시간 모니터링은 `ws://<host>:8080/ws/fsr-data` 구독
+3. 자세 분석이 필요하면 주기적으로 `GET /api/fsr_data/feedback` 호출
+4. 앱 내부 AI 세션(WebSocket `ws://<host>/ws?token=...`)과 조합하여 사용자에게 DATA/FEEDBACK UI 표시
+
+### 9.6 AI + FSR 통합 피드백
+- 엔드포인트: `GET /api/fsr_data/feedback/combined`
+- 반환 항목:
+  - `ai`: 최신 AI 상태(`lumbar`/`knee`/`ankle`) 기반 메시지, 데이터 없으면 `status = NO_DATA`
+  - `fsr`: 위 10초 구간 피드백 구조와 동일
+  - `overallMessages`: AI와 깔창 메시지를 상황에 맞게 합친 최종 가이드
+- 사용 시나리오
+  - **AI만 수집**: AI 메시지만 채워지고, 깔창 데이터는 `NO_DATA`로 표시
+  - **깔창만 수집**: 깔창 피드백만 채워짐
+  - **둘 다 수집**: 두 데이터를 함께 고려한 메시지 목록을 반환
+
+---
+

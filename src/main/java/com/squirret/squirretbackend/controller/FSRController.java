@@ -1,9 +1,11 @@
 package com.squirret.squirretbackend.controller;
 
+import com.squirret.squirretbackend.dto.CombinedFeedbackResponse;
 import com.squirret.squirretbackend.dto.FSRDataDTO;
-import com.squirret.squirretbackend.dto.PostureFeedbackDTO;
+import com.squirret.squirretbackend.dto.FsrFeedbackResponse;
 import com.squirret.squirretbackend.service.FSRDataService;
 import com.squirret.squirretbackend.service.PostureFeedbackService;
+import com.squirret.squirretbackend.service.UnifiedFeedbackService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +21,7 @@ public class FSRController {
 
     private final FSRDataService fsrDataService;
     private final PostureFeedbackService postureFeedbackService;
+    private final UnifiedFeedbackService unifiedFeedbackService;
 
     @PostMapping("/fsr_data")
     public ResponseEntity<String> receiveFsrData(@RequestBody FSRDataDTO data) {
@@ -36,11 +39,19 @@ public class FSRController {
 
     // 종합 자세 피드백 (양발 데이터 기반)
     @GetMapping("/fsr_data/feedback")
-    public ResponseEntity<PostureFeedbackDTO> getFeedback() {
+    public ResponseEntity<FsrFeedbackResponse> getFeedback() {
         log.info("=== 종합 자세 피드백 요청 ===");
-        PostureFeedbackDTO feedback = postureFeedbackService.getOverallFeedback();
-        log.info("종합 피드백 생성 완료 - 피드백 개수: {}", feedback.getFeedbacks().size());
+        FsrFeedbackResponse feedback = postureFeedbackService.getOverallFeedback();
+        log.info("종합 피드백 생성 완료 - leftStatus={}, rightStatus={}",
+                feedback.getLeft() != null ? feedback.getLeft().getStatus() : "null",
+                feedback.getRight() != null ? feedback.getRight().getStatus() : "null");
         return ResponseEntity.ok(feedback);
+    }
+
+    @GetMapping("/fsr_data/feedback/combined")
+    public ResponseEntity<CombinedFeedbackResponse> getCombinedFeedback() {
+        CombinedFeedbackResponse response = unifiedFeedbackService.buildFeedback();
+        return ResponseEntity.ok(response);
     }
 
 }

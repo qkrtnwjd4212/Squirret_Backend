@@ -2,6 +2,8 @@ package com.squirret.squirretbackend.handler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.squirret.squirretbackend.dto.FSRDataDTO;
+import com.squirret.squirretbackend.service.FSRDataService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -15,15 +17,40 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class FSRWebSocketHandler extends TextWebSocketHandler {
 
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final FSRDataService fsrDataService;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         sessions.put(session.getId(), session);
         log.info("웹소켓 연결됨: {}", session.getId());
+        
+        // 연결 시 최신 데이터 즉시 전송 (깔창이 연결되지 않아도 모든 센서가 0으로 표시됨)
+        try {
+            Map<String, FSRDataDTO> latestData = fsrDataService.getLatestInsoleData(true);
+            log.info("최신 데이터 조회 완료: left={}, right={}", 
+                    latestData.get("left") != null ? "있음" : "없음",
+                    latestData.get("right") != null ? "있음" : "없음");
+            
+            String jsonMessage = objectMapper.writeValueAsString(latestData);
+            log.info("JSON 변환 완료, 메시지 길이: {} bytes", jsonMessage.length());
+            log.info("전송할 JSON 내용: {}", jsonMessage);
+            
+            TextMessage message = new TextMessage(jsonMessage);
+            if (session.isOpen()) {
+                session.sendMessage(message);
+                log.info("연결 시 최신 데이터 전송 완료: {}", session.getId());
+            } else {
+                log.warn("세션이 이미 닫혀있음: {}", session.getId());
+            }
+        } catch (Exception e) {
+            log.error("연결 시 데이터 전송 실패: {}", session.getId(), e);
+            e.printStackTrace();
+        }
     }
 
     @Override
