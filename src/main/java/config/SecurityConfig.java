@@ -15,7 +15,6 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -42,10 +41,10 @@ public class SecurityConfig {
             .httpBasic(AbstractHttpConfigurer::disable)
             .logout(AbstractHttpConfigurer::disable)
             .authorizeHttpRequests(auth -> auth
-                // 웹소켓 경로 명시적으로 허용
                 .requestMatchers("/ws/**").permitAll()
-                // 모든 요청을 기본적으로 permitAll로 설정 (인증 없이 접근 가능)
-                .anyRequest().permitAll()
+                .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**").permitAll()
+                .requestMatchers("/api/fitness/**").authenticated()
+                .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .oauth2Login(oauth2 -> oauth2
@@ -73,7 +72,6 @@ public class SecurityConfig {
             String email = oauth2User.getAttribute("email");
             String accessToken = jwtService.generateToken(UUID.fromString(userId), email);
             String refreshToken = jwtService.generateRefreshToken(UUID.fromString(userId), email);
-
             String redirectUrl = request.getParameter("redirect_uri");
             if (redirectUrl == null || redirectUrl.isEmpty()) {
                 redirectUrl = "squirret://auth/callback";
@@ -92,7 +90,6 @@ public class SecurityConfig {
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
