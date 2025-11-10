@@ -23,16 +23,13 @@ public class PostureFeedbackService {
 
     public FsrFeedbackResponse getOverallFeedback() {
         Map<String, FSRDataDTO> averaged = fsrDataService.getAveragedInsoleData(FEEDBACK_WINDOW);
-        return FsrFeedbackResponse.builder()
-                .left(evaluateFoot("left", averaged.get("left")))
-                .right(evaluateFoot("right", averaged.get("right")))
-                .build();
-    }
+        FSRDataDTO leftData = averaged.get("left");
+        FSRDataDTO rightData = averaged.get("right");
 
-    private FsrFeedbackResponse.FootFeedback evaluateFoot(String side, FSRDataDTO data) {
-        if (data == null || data.getSide() == null) {
-            return FsrFeedbackResponse.FootFeedback.builder()
-                    .side(side)
+        // 양발 데이터가 모두 없으면 NO_DATA 반환
+        if ((leftData == null || leftData.getSide() == null) && 
+            (rightData == null || rightData.getSide() == null)) {
+            return FsrFeedbackResponse.builder()
                     .stage("UNKNOWN")
                     .status("NO_DATA")
                     .feedback("최근 10초 동안 수집된 데이터가 없습니다.")
@@ -40,19 +37,21 @@ public class PostureFeedbackService {
                     .build();
         }
 
-        Metrics metrics = calculateMetrics(data);
-        StageResult descent = evaluateDescent(metrics);
-        StageResult ascent = evaluateAscent(metrics);
+        // 양발 데이터를 평균 내어 통합 분석
+        CombinedMetrics combined = calculateCombinedMetrics(leftData, rightData);
+        StageResult descent = evaluateDescent(combined);
+        StageResult ascent = evaluateAscent(combined);
 
         StageResult finalStage = chooseStage(descent, ascent);
 
         Map<String, Float> metricMap = new LinkedHashMap<>();
-        metricMap.put("front", metrics.front);
-        metricMap.put("rear", metrics.rear);
-        metricMap.put("inner", metrics.inner);
-        metricMap.put("outer", metrics.outer);
-        metricMap.put("heel", metrics.heel);
-        metricMap.put("innerOuterDiff", metrics.innerOuterDiff);
+        metricMap.put("front", combined.front);
+        metricMap.put("rear", combined.rear);
+        metricMap.put("inner", combined.inner);
+        metricMap.put("outer", combined.outer);
+        metricMap.put("heel", combined.heel);
+        metricMap.put("innerOuterDiff", combined.innerOuterDiff);
+        metricMap.put("leftRightDiff", combined.leftRightDiff);
 
         String feedback;
         if (finalStage.messages.isEmpty()) {
@@ -61,13 +60,36 @@ public class PostureFeedbackService {
             feedback = String.join(" ", finalStage.messages);
         }
 
-        return FsrFeedbackResponse.FootFeedback.builder()
-                .side(side)
+        return FsrFeedbackResponse.builder()
                 .stage(finalStage.stage)
                 .status(finalStage.messages.isEmpty() ? "GOOD" : "BAD")
                 .feedback(feedback)
                 .metrics(metricMap)
                 .build();
+    }
+
+    private CombinedMetrics calculateCombinedMetrics(FSRDataDTO leftData, FSRDataDTO rightData) {
+        CombinedMetrics combined = new CombinedMetrics();
+        
+        Metrics leftMetrics = leftData != null && leftData.getSide() != null 
+                ? calculateMetrics(leftData) : new Metrics();
+        Metrics rightMetrics = rightData != null && rightData.getSide() != null 
+                ? calculateMetrics(rightData) : new Metrics();
+
+        // 양발 평균 계산
+        combined.front = (leftMetrics.front + rightMetrics.front) / 2f;
+        combined.rear = (leftMetrics.rear + rightMetrics.rear) / 2f;
+        combined.inner = (leftMetrics.inner + rightMetrics.inner) / 2f;
+        combined.outer = (leftMetrics.outer + rightMetrics.outer) / 2f;
+        combined.heel = (leftMetrics.heel + rightMetrics.heel) / 2f;
+        combined.innerOuterDiff = Math.abs(combined.inner - combined.outer);
+        
+        // 좌우 균형 차이 계산
+        float leftTotal = leftMetrics.front + leftMetrics.rear;
+        float rightTotal = rightMetrics.front + rightMetrics.rear;
+        combined.leftRightDiff = Math.abs(leftTotal - rightTotal);
+
+        return combined;
     }
 
     private Metrics calculateMetrics(FSRDataDTO data) {
@@ -81,15 +103,16 @@ public class PostureFeedbackService {
         return metrics;
     }
 
-    private StageResult evaluateDescent(Metrics m) {
+    private StageResult evaluateDescent(CombinedMetrics m) {
         StageResult result = new StageResult("DESCENT");
 
         boolean withinRear = between(m.rear, 55f, 70f);
         boolean withinFront = m.front <= 35f;
         boolean heelOK = m.heel >= 55f;
         boolean balanceOK = m.innerOuterDiff <= 10f;
+        boolean leftRightOK = m.leftRightDiff <= 15f;
 
-        if (withinRear && withinFront && heelOK && balanceOK) {
+        if (withinRear && withinFront && heelOK && balanceOK && leftRightOK) {
             result.goodMessage = "하강 구간 자세가 안정적입니다. 현재 자세를 유지하세요.";
             return result;
         }
@@ -112,18 +135,22 @@ public class PostureFeedbackService {
         if (!balanceOK) {
             result.messages.add("좌우 체중 균형을 맞춰주세요.");
         }
+        if (!leftRightOK) {
+            result.messages.add("양발에 체중을 균등하게 분배하세요.");
+        }
         return result;
     }
 
-    private StageResult evaluateAscent(Metrics m) {
+    private StageResult evaluateAscent(CombinedMetrics m) {
         StageResult result = new StageResult("ASCENT");
 
         boolean rearOK = between(m.rear, 45f, 55f);
         boolean frontOK = between(m.front, 45f, 55f);
         boolean heelOK = m.heel >= 45f;
         boolean balanceOK = m.innerOuterDiff <= 10f;
+        boolean leftRightOK = m.leftRightDiff <= 15f;
 
-        if (rearOK && frontOK && heelOK && balanceOK) {
+        if (rearOK && frontOK && heelOK && balanceOK && leftRightOK) {
             result.goodMessage = "상승 구간 자세가 안정적입니다. 그대로 일어나세요.";
             return result;
         }
@@ -145,6 +172,9 @@ public class PostureFeedbackService {
         }
         if (!heelOK) {
             result.messages.add("뒤꿈치를 바닥에 단단히 붙이고 올라오세요.");
+        }
+        if (!leftRightOK) {
+            result.messages.add("양발에 체중을 균등하게 분배하세요.");
         }
         return result;
     }
@@ -177,6 +207,16 @@ public class PostureFeedbackService {
         float outer;
         float heel;
         float innerOuterDiff;
+    }
+
+    private static class CombinedMetrics {
+        float front;
+        float rear;
+        float inner;
+        float outer;
+        float heel;
+        float innerOuterDiff;
+        float leftRightDiff;
     }
 
     private static class StageResult {

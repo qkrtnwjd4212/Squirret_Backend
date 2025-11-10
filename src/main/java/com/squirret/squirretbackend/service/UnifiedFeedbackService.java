@@ -98,13 +98,8 @@ public class UnifiedFeedbackService {
             merged.addAll(ai.getMessages());
         }
 
-        if (fsr != null) {
-            if (fsr.getLeft() != null && fsr.getLeft().getFeedback() != null) {
-                merged.add("[왼발] " + fsr.getLeft().getFeedback());
-            }
-            if (fsr.getRight() != null && fsr.getRight().getFeedback() != null) {
-                merged.add("[오른발] " + fsr.getRight().getFeedback());
-            }
+        if (fsr != null && fsr.getFeedback() != null && !fsr.getFeedback().isEmpty()) {
+            merged.add(fsr.getFeedback());
         }
 
         return merged;

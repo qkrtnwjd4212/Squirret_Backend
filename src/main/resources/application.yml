@@ -89,6 +89,11 @@ jwt:
   expiration: 86400000  # 24시간 (밀리초)
   refresh-expiration: 604800000  # 7일 (밀리초)
 
+# FastAPI 웹소켓 설정
+inference:
+  ws:
+    base-url: ${INFERENCE_WS_BASE_URL:ws://localhost:8000}  # 환경 변수로 설정 가능
+
 logging:
   level:
     org.springframework.security: INFO
