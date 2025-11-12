@@ -1,5 +1,5 @@
 
-# Squirret iOS 연동 — 최소 클릭 가이드 & API 명세 (단일 문서)
+# Squirret Backend API 명세
 
 ## 0) 공통
 
@@ -37,21 +37,6 @@
 
 ---
 
-## 2) iOS 프로젝트 세팅
-
-* **SPM**: `https://github.com/WrathChaos/StompClientLib.git`
-* 권장 환경: iOS 15+, 개발 단계는 ATS 예외(HTTP/WS) 또는 운영은 HTTPS/WSS 사용
-
-```swift
-enum API {
-    static let host = "54.86.161.187"
-    static let base = "http://\(host):8080"
-    static let ws   = "ws://\(host):8080"
-}
-```
-
----
-
 ## 3) 세션/인증 API
 
 ### 3.1 게스트 세션 발급
@@ -64,21 +49,6 @@ enum API {
 ```
 
 **참고**: 현재 구현에서는 `wsToken`이 placeholder로 반환됩니다. 실제 STOMP 연결 시 JWT 토큰이 필요합니다.
-
-**Swift**
-
-```swift
-struct SessionIssueResp: Decodable { let sessionId: String; let wsToken: String }
-
-func issueSession() async throws -> SessionIssueResp {
-    let url = URL(string: "\(API.base)/internal/session")!
-    var req = URLRequest(url: url)
-    req.httpMethod = "POST"
-    req.addValue("application/json", forHTTPHeaderField: "Content-Type")
-    let (data, _) = try await URLSession.shared.data(for: req)
-    return try JSONDecoder().decode(SessionIssueResp.self, from: data)
-}
-```
 
 ### 3.2 승격(guest→user)
 
@@ -95,23 +65,6 @@ func issueSession() async throws -> SessionIssueResp {
 { "sessionId":"e0e1c6af-...", "wsToken":"NEW_USER_TOKEN_JWT" }
 ```
 
-**Swift**
-
-```swift
-struct UpgradeResp: Decodable { let sessionId: String; let wsToken: String }
-
-func upgradeSession(userId: String, sessionId: String, email: String) async throws -> UpgradeResp {
-    let url = URL(string: "\(API.base)/auth/upgrade")!
-    var req = URLRequest(url: url)
-    req.httpMethod = "POST"
-    req.addValue("application/json", forHTTPHeaderField: "Content-Type")
-    let body = ["userId": userId, "sessionId": sessionId, "email": email]
-    req.httpBody = try JSONSerialization.data(withJSONObject: body)
-    let (data, _) = try await URLSession.shared.data(for: req)
-    return try JSONDecoder().decode(UpgradeResp.self, from: data)
-}
-```
-
 ---
 
 ## 4) WebSocket/STOMP
@@ -124,56 +77,7 @@ func upgradeSession(userId: String, sessionId: String, email: String) async thro
 * **구독**: `/user/queue/session`
 * **송신**: `/app/session.message` (JSON)
 
-### 4.2 iOS STOMP 예제
-
-```swift
-import StompClientLib
-
-final class WSService: NSObject, StompClientLibDelegate {
-    private let stomp = StompClientLib()
-    private var request: NSURLRequest!
-
-    func connect(wsToken: String) {
-        let url = NSURL(string: "\(API.ws)/ws?token=\(wsToken)")!
-        request = NSURLRequest(url: url as URL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-        stomp.openSocketWithURLRequest(request: request, delegate: self)
-    }
-
-    func stompClientDidConnect(client: StompClientLib!) {
-        client.subscribe(destination: "/user/queue/session")
-        let ping: [String: Any] = ["type":"PING", "payload":["ts": Date().timeIntervalSince1970]]
-        client.sendJSONForDict(dict: ping as NSDictionary, toDestination: "/app/session.message")
-    }
-
-    func stompClient(_ client: StompClientLib!, didReceiveMessageWithJSONBody jsonBody: AnyObject?, akaStringBody stringBody: String?, withHeader header: [String : String]?, withDestination destination: String) {
-        // 서버 push: DATA(1초), voice/FEEDBACK(10초)
-        print("recv \(destination): \(stringBody ?? "")")
-    }
-
-    func serverDidSendError(client: StompClientLib!, withErrorMessage description: String, detailedErrorMessage: String?) { reconnect() }
-    func stompClientDidDisconnect(client: StompClientLib!) { reconnect() }
-    private func reconnect(delay: TimeInterval = 1) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self else { return }
-            self.stomp.openSocketWithURLRequest(request: self.request, delegate: self)
-        }
-    }
-
-    func sendClientEvent(name: String) {
-        let cmd: [String: Any] = ["type":"CLIENT_EVENT", "payload":["name": name, "ts": Date().timeIntervalSince1970]]
-        stomp.sendJSONForDict(dict: cmd as NSDictionary, toDestination: "/app/session.message")
-    }
-}
-
-// 최초 실행 예
-let ws = WSService()
-Task {
-    let s = try await issueSession()
-    ws.connect(wsToken: s.wsToken)
-}
-```
-
-### 4.3 메시지 규격(서버→앱 예시)
+### 4.2 메시지 규격(서버→앱 예시)
 
 ```json
 {
@@ -222,44 +126,10 @@ Task {
 }
 ```
 
-**Swift**
-
-```swift
-struct FSRFoot: Decodable {
-    let side: String
-    let ratio1, ratio2, ratio3, ratio4, ratio5, ratio6: Double
-}
-struct FSRLatest: Decodable { let left: FSRFoot?; let right: FSRFoot? }
-
-func fetchFSRLatest() async throws -> FSRLatest {
-    let (data, _) = try await URLSession.shared.data(from: URL(string: "\(API.base)/api/fsr_data/latest")!)
-    return try JSONDecoder().decode(FSRLatest.self, from: data)
-}
-```
-
 ### 5.3 실시간 스트리밍(WS 브로드캐스트)
 
 * **URL**: `ws://54.86.161.187:8080/ws/fsr-data` (STOMP 아님, **순수 WebSocket JSON**)
 * **동작**: 연결 즉시 최신 스냅샷 1회 → 새 데이터마다 push
-
-```swift
-final class FSRStream {
-    private var task: URLSessionWebSocketTask?
-    func connect() {
-        let url = URL(string: "\(API.ws)/ws/fsr-data")!
-        task = URLSession.shared.webSocketTask(with: url)
-        task?.resume()
-        receive()
-    }
-    private func receive() {
-        task?.receive { [weak self] result in
-            if case .success(.string(let text)) = result { print("FSR WS:", text) } // JSON 파싱 → UI 반영
-            self?.receive()
-        }
-    }
-    func disconnect() { task?.cancel(with: .goingAway, reason: nil) }
-}
-```
 
 ### 5.4 10초 구간 피드백(REST)
 
@@ -290,22 +160,6 @@ final class FSRStream {
   * **NO_DATA**: 직전 10초 수집값 없음
   * **metrics**: 양발 평균값 + 좌우 균형 차이(`leftRightDiff`) 포함
 
-**Swift**
-
-```swift
-struct FSRFeedback: Decodable {
-    let stage: String?      // "DESCENT", "ASCENT", "UNKNOWN"
-    let status: String?     // "GOOD", "BAD", "NO_DATA"
-    let feedback: String?
-    let metrics: [String: Double]?
-}
-
-func fetchFSRFeedback() async throws -> FSRFeedback {
-    let (data, _) = try await URLSession.shared.data(from: URL(string: "\(API.base)/api/fsr_data/feedback")!)
-    return try JSONDecoder().decode(FSRFeedback.self, from: data)
-}
-```
-
 ### 5.5 AI + FSR 통합 피드백(REST)
 
 * **GET** `/api/fsr_data/feedback/combined`
@@ -332,81 +186,6 @@ func fetchFSRFeedback() async throws -> FSRFeedback {
     "무릎이 안쪽으로 무너지고 있습니다. 정렬을 유지하세요.",
     "체중이 앞쪽으로 쏠렸습니다. 뒤꿈치로 눌러주세요."
   ]
-}
-```
-
-**Swift**
-
-```swift
-struct CombinedFeedback: Decodable {
-    struct AI: Decodable {
-        let status: String
-        let raw: [String: String]?
-        let messages: [String]?
-    }
-    struct FSR: Decodable {
-        let stage: String?
-        let status: String?
-        let feedback: String?
-        let metrics: [String: Double]?
-    }
-    let ai: AI
-    let fsr: FSR
-    let overallMessages: [String]
-}
-
-func fetchCombinedFeedback() async throws -> CombinedFeedback {
-    let (data, _) = try await URLSession.shared.data(from: URL(string: "\(API.base)/api/fsr_data/feedback/combined")!)
-    return try JSONDecoder().decode(CombinedFeedback.self, from: data)
-}
-```
-
----
-
-## 6) 뷰모델 배선 샘플
-
-```swift
-@MainActor
-final class PoseViewModel: ObservableObject {
-    @Published var latest: FSRLatest?
-    @Published var fsrFeedback: FSRFeedback?
-    @Published var combinedFeedback: CombinedFeedback?
-    @Published var lastMessage: String = ""
-    private let ws = WSService()
-    private let fsrWS = FSRStream()
-    private var session: SessionIssueResp?
-
-    func start() async {
-        do {
-            let s = try await issueSession()
-            session = s
-            ws.connect(wsToken: s.wsToken)
-            fsrWS.connect()
-            latest = try await fetchFSRLatest()
-        } catch {
-            lastMessage = "시작 실패: \(error.localizedDescription)"
-        }
-    }
-
-    // FSR 피드백만 요청
-    func requestFSRFeedback() async {
-        do {
-            fsrFeedback = try await fetchFSRFeedback()
-            lastMessage = fsrFeedback?.feedback ?? "피드백 없음"
-        } catch {
-            lastMessage = "FSR 피드백 실패: \(error.localizedDescription)"
-        }
-    }
-
-    // AI + FSR 통합 피드백 요청
-    func requestCombinedFeedback() async {
-        do {
-            combinedFeedback = try await fetchCombinedFeedback()
-            lastMessage = combinedFeedback?.overallMessages.joined(separator: "\n") ?? "피드백 없음"
-        } catch {
-            lastMessage = "통합 피드백 실패: \(error.localizedDescription)"
-        }
-    }
 }
 ```
 
@@ -534,7 +313,7 @@ curl -s -X POST -H "Content-Type: application/json" \
 
 #### 8.2.1 FastAPI에서 세션 발급
 
-* **POST** `{fastApiUrl}/api/session?side=auto`
+* **POST** `https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io/api/session?side=auto`
 * **FastAPI Base URL**: `https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io`
 * **요청**: 쿼리 파라미터
   - `side`: "auto", "left", "right" (선택사항, 기본값: "auto")
@@ -542,19 +321,6 @@ curl -s -X POST -H "Content-Type: application/json" \
 * **응답 200**:
 ```json
 "session_7f83a1f3"  // FastAPI 세션 ID (문자열)
-```
-
-**Swift**
-```swift
-func createFastApiSession(side: String = "auto") async throws -> String {
-    let url = URL(string: "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io/api/session?side=\(side)")!
-    var req = URLRequest(url: url)
-    req.httpMethod = "POST"
-    let (data, _) = try await URLSession.shared.data(for: req)
-    // FastAPI는 세션 ID를 문자열로 반환
-    let sessionId = String(data: data, encoding: .utf8)?.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
-    return sessionId
-}
 ```
 
 #### 8.2.2 Spring에 FastAPI 세션 등록
@@ -582,33 +348,6 @@ func createFastApiSession(side: String = "auto") async throws -> String {
 - `fastApiUrl`: null (더 이상 사용하지 않음)
 - `fastApiSessionId`: FastAPI 세션 ID (프레임 업로드 시 경로에 사용)
 
-**Swift**
-```swift
-struct InferenceSession: Decodable {
-    let sessionId: String  // Spring 세션 ID
-    let fastApiUrl: String?  // null (더 이상 사용하지 않음)
-    let fastApiSessionId: String  // FastAPI 세션 ID
-}
-
-// 전체 흐름: FastAPI에서 세션 발급 → Spring에 등록
-func createInferenceSession(userId: String, side: String = "auto") async throws -> InferenceSession {
-    // 1단계: FastAPI에서 세션 발급
-    let fastApiSessionId = try await createFastApiSession(side: side)
-    
-    // 2단계: Spring에 FastAPI 세션 ID 등록
-    let url = URL(string: "\(API.base)/api/session")!
-    var req = URLRequest(url: url)
-    req.httpMethod = "POST"
-    req.addValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.httpBody = try JSONSerialization.data(withJSONObject: [
-        "userId": userId,
-        "fastApiSessionId": fastApiSessionId
-    ])
-    let (data, _) = try await URLSession.shared.data(for: req)
-    return try JSONDecoder().decode(InferenceSession.self, from: data)
-}
-```
-
 #### 8.2.3 세션 완료
 
 * **POST** `/api/session/{sessionId}/finish`
@@ -629,200 +368,38 @@ func createInferenceSession(userId: String, side: String = "auto") async throws 
 }
 ```
 
-### 8.3 FastAPI REST API 프레임 업로드 (iOS)
+### 8.3 FastAPI REST API 프레임 업로드
 
 #### 8.3.1 프레임 업로드 방법
 
 **중요**: FastAPI에서 직접 세션을 발급받고, **앱에서 FastAPI REST API에 직접 프레임 업로드**합니다.
 
-1. **FastAPI에서 세션 발급 및 Spring에 등록**:
-   ```swift
-   let session = try await createInferenceSession(userId: "user123", side: "auto")
-   // session.sessionId = "spring-session-uuid" (백엔드 내부 관리용)
-   // session.fastApiSessionId = "session_7f83a1f3" (FastAPI 세션 ID)
-   ```
+**전체 흐름**:
+1. **FastAPI에서 세션 발급**: `POST https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io/api/session?side=auto`
+2. **Spring에 세션 등록**: `POST /api/session` (FastAPI 세션 ID 전달)
+3. **FastAPI에 프레임 업로드**: `POST https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io/api/session/{fastApiSessionId}/frame` (multipart/form-data)
 
-2. **FastAPI에 프레임 업로드** (Spring 경유 없음):
-   ```swift
-    func uploadFrame(imageData: Data, session: InferenceSession) async throws -> AnalysisResult {
-        // FastAPI Base URL은 하드코딩 또는 설정에서 가져옴
-        let fastApiBaseUrl = "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io"
-        let url = URL(string: "\(fastApiBaseUrl)/api/session/\(session.fastApiSessionId)/frame")!
-       var request = URLRequest(url: url)
-       request.httpMethod = "POST"
-       
-       // multipart/form-data로 파일 업로드
-       let boundary = UUID().uuidString
-       request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-       
-       var body = Data()
-       body.append("--\(boundary)\r\n".data(using: .utf8)!)
-       body.append("Content-Disposition: form-data; name=\"file\"; filename=\"frame.jpg\"\r\n".data(using: .utf8)!)
-       body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
-       body.append(imageData)
-       body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-       
-       request.httpBody = body
-       
-       let (data, _) = try await URLSession.shared.data(for: request)
-       return try JSONDecoder().decode(AnalysisResult.self, from: data)
-   }
-   ```
-
-* **URL**: `{fastApiUrl}/api/session/{fastApiSessionId}/frame`
+* **URL**: `https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io/api/session/{fastApiSessionId}/frame`
 * **프로토콜**: REST API (multipart/form-data)
 * **인증**: 현재 v1.0.0 기준 인증 없음
 * **연결 경로**: `앱 → FastAPI (직접)` (Spring 거치지 않음)
 
-**Swift**
-```swift
-import Foundation
+**요청 형식**:
+- Content-Type: `multipart/form-data`
+- 파일 필드명: `file`
+- 파일 형식: 이미지 (JPEG, PNG 등)
 
-struct AnalysisResult: Decodable {
-    let state: String?  // "SIT", "STAND" 등
-    let side: String?  // "left", "right"
-    let squatCount: Int?  // 스쿼트 카운트
-    let checks: [String: String]?  // {"back": "good", "knee": "too forward"} 등
-}
-
-final class FastApiClient {
-    private var session: InferenceSession?
-    
-    func setSession(_ session: InferenceSession) {
-        self.session = session
-    }
-    
-    func uploadFrame(imageData: Data, frameNumber: Int) async throws -> AnalysisResult {
-        guard let session = session else {
-            throw NSError(domain: "FastApiClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "세션이 없습니다"])
-        }
-        
-        // FastAPI Base URL은 하드코딩 또는 설정에서 가져옴
-        let fastApiBaseUrl = "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io"
-        let url = URL(string: "\(fastApiBaseUrl)/api/session/\(session.fastApiSessionId)/frame")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        
-        // multipart/form-data로 파일 업로드
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"frame\(frameNumber).jpg\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
-        body.append(imageData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        
-        request.httpBody = body
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw NSError(domain: "FastApiClient", code: -2, userInfo: [NSLocalizedDescriptionKey: "업로드 실패"])
-        }
-        
-        // FastAPI 분석 결과 파싱
-        return try JSONDecoder().decode(AnalysisResult.self, from: data)
-    }
-    
-    func finishSession(framesIn: Int, framesOut: Int, durationSeconds: Int) {
-        guard let sessionId = session?.sessionId else { return }
-        
-        Task {
-            let url = URL(string: "\(API.base)/api/session/\(sessionId)/finish")!
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            req.addValue("application/json", forHTTPHeaderField: "Content-Type")
-            let body: [String: Any] = [
-                "framesIn": framesIn,
-                "framesOut": framesOut,
-                "durationSeconds": durationSeconds
-            ]
-            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            _ = try? await URLSession.shared.data(for: req)
-        }
-    }
-}
-```
-
-### 8.4 사용 예시 (iOS)
-
-**전체 흐름 (5단계)**:
-1. **STOMP 웹소켓 연결**: Spring STOMP 웹소켓 연결 (피드백 수신용)
-2. **FastAPI에서 세션 발급**: FastAPI API 호출 (`POST {fastApiUrl}/api/session`)
-3. **Spring에 세션 등록**: FastAPI 세션 ID를 Spring에 등록 (`POST /api/session`)
-4. **FastAPI REST API**: 받은 `fastApiSessionId`로 FastAPI에 프레임 업로드
-5. **피드백 수신**: STOMP 웹소켓으로 Spring에서 피드백 수신
-6. **세션 완료**: Spring API 호출 (`POST /api/session/{springSessionId}/finish`)
-
-```swift
-@MainActor
-final class InferenceViewModel: ObservableObject {
-    @Published var isConnected = false
-    @Published var lastResponse: String = ""
-    @Published var analysisResult: AnalysisResult?
-    private let fastApiClient = FastApiClient()
-    private let wsService = WSService()  // STOMP 웹소켓 서비스
-    private var frameCounter = 0
-    private var sessionStartTime: Date?
-    private var session: InferenceSession?
-
-    func startInference(userId: String) async {
-        do {
-            // ═══════════════════════════════════════════════════════
-            // 1단계: STOMP 웹소켓 연결 (피드백 수신용)
-            // ═══════════════════════════════════════════════════════
-            let guestSession = try await issueSession()  // 게스트 세션 발급
-            wsService.connect(wsToken: guestSession.wsToken)
-            
-            // ═══════════════════════════════════════════════════════
-            // 2단계: FastAPI에서 세션 발급 및 Spring에 등록
-            // ═══════════════════════════════════════════════════════
-            session = try await createInferenceSession(userId: userId, side: "auto")
-            print("✅ Spring 세션 ID: \(session!.sessionId)")
-            print("✅ FastAPI Session ID: \(session!.fastApiSessionId)")
-            
-            fastApiClient.setSession(session!)
-            sessionStartTime = Date()
-            isConnected = true
-        } catch {
-            lastResponse = "세션 생성 실패: \(error.localizedDescription)"
-        }
-    }
-
-    func sendFrame(imageData: Data) async {
-        // ═══════════════════════════════════════════════════════
-        // 3단계: FastAPI REST API로 프레임 업로드 (Spring 경유 없음)
-        // ═══════════════════════════════════════════════════════
-        do {
-            let result = try await fastApiClient.uploadFrame(imageData: imageData, frameNumber: frameCounter)
-            analysisResult = result
-            frameCounter += 1
-            print("✅ 분석 결과: state=\(result.state ?? "N/A"), squatCount=\(result.squatCount ?? 0)")
-            
-            // FastAPI는 분석 결과를 Spring으로 자동 전송하므로,
-            // STOMP 웹소켓으로 피드백이 자동 수신됨
-        } catch {
-            lastResponse = "프레임 업로드 실패: \(error.localizedDescription)"
-        }
-    }
-
-    func stopInference() {
-        // ═══════════════════════════════════════════════════════
-        // 세션 완료: Spring API 호출 (통계 저장)
-        // ═══════════════════════════════════════════════════════
-        guard let session = session else { return }
-        let duration = Int((Date().timeIntervalSince(sessionStartTime ?? Date())))
-        fastApiClient.finishSession(
-            framesIn: frameCounter,
-            framesOut: frameCounter,
-            durationSeconds: duration
-        )
-        wsService.disconnect()
-        isConnected = false
-    }
+**응답 형식**:
+```json
+{
+  "state": "SIT",  // "SIT", "STAND" 등
+  "side": "left",  // "left", "right"
+  "squat_count": 5,  // 스쿼트 카운트
+  "checks": {
+    "back": "good",
+    "knee": "too forward",
+    "ankle": "good"
+  }
 }
 ```
 
@@ -1048,7 +625,7 @@ FASTAPI_BASE_URL=https://squat-api.blackmoss-f506213d.koreacentral.azurecontaine
 
 **Q: 누가 FastAPI 세션을 생성하나요?**  
 A: **앱이 직접 FastAPI에서 생성합니다**. 
-1. 앱이 FastAPI API(`POST {fastApiUrl}/api/session?side=auto`)로 세션 발급 요청
+1. 앱이 FastAPI API(`POST https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io/api/session?side=auto`)로 세션 발급 요청
 2. FastAPI가 세션 ID 반환 (`"session_7f83a1f3"`)
 3. 앱이 Spring API(`POST /api/session`)로 FastAPI 세션 ID를 전달하여 등록
 4. Spring이 FastAPI sessionId를 받아서 Spring sessionId와 매핑하여 저장
@@ -1057,9 +634,8 @@ A: **앱이 직접 FastAPI에서 생성합니다**.
 **Q: 앱에서 FastAPI에 어떻게 프레임을 업로드하나요?**  
 A: **REST API로 직접 업로드합니다**.
 1. FastAPI에서 받은 `fastApiSessionId` 사용 (또는 Spring 등록 시 받은 `fastApiSessionId`)
-2. `POST {fastApiBaseUrl}/api/session/{fastApiSessionId}/frame`으로 multipart/form-data 업로드
+2. `POST https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io/api/session/{fastApiSessionId}/frame`으로 multipart/form-data 업로드
 3. FastAPI가 분석 결과를 HTTP 응답으로 반환
-4. FastAPI Base URL은 하드코딩하거나 설정에서 가져옴
 
 **Q: FastAPI 서버가 다운되면?**  
 A: 앱은 FastAPI REST API에 직접 요청하므로, FastAPI 다운 시 HTTP 에러가 발생합니다. 에러 처리 및 재시도 로직 구현 필요.
