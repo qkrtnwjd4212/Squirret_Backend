@@ -1,5 +1,7 @@
 package com.squirret.squirretbackend.controller;
 
+import com.squirret.squirretbackend.dto.InferenceFeedbackDto;
+import com.squirret.squirretbackend.service.InferenceFeedbackService;
 import com.squirret.squirretbackend.service.InferenceSessionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +18,7 @@ import java.util.UUID;
 public class InternalSessionController {
 
     private final InferenceSessionService inferenceSessionService;
+    private final InferenceFeedbackService inferenceFeedbackService;
 
     /**
      * 게스트 세션 발급 (기존 STOMP용)
@@ -31,13 +34,15 @@ public class InternalSessionController {
     }
 
     /**
-     * FastAPI 웹소켓용 세션 발급
+     * FastAPI 세션 발급 (REST API 기반)
+     * Spring에서 FastAPI 세션을 생성하고 매핑
      */
     @PostMapping("/session")
     public ResponseEntity<InferenceSessionService.CreateSessionResponse> createInferenceSession(
             @RequestBody(required = false) Map<String, String> body) {
         String userId = body != null ? body.getOrDefault("userId", "guest") : "guest";
-        InferenceSessionService.CreateSessionResponse response = inferenceSessionService.createSession(userId);
+        String side = body != null ? body.getOrDefault("side", "auto") : "auto";
+        InferenceSessionService.CreateSessionResponse response = inferenceSessionService.createSession(userId, side);
         return ResponseEntity.ok(response);
     }
 
@@ -69,6 +74,51 @@ public class InternalSessionController {
                 framesIn, framesOut, durationSeconds);
         inferenceSessionService.finishSession(sessionId, stats);
         return ResponseEntity.ok(Map.of("status", "completed", "sessionId", sessionId));
+    }
+
+    /**
+     * FastAPI에서 분석 결과/피드백을 받아서 앱으로 전달
+     * 
+     * FastAPI sessionId를 받아서 Spring sessionId로 변환하여 피드백 전달
+     * 
+     * @param fastApiSessionId FastAPI 세션 ID (경로 변수)
+     * @param feedback 피드백 데이터 (FastAPI 분석 결과)
+     * @return 전달 결과
+     */
+    @PostMapping("/internal/inference/{fastApiSessionId}/feedback")
+    public ResponseEntity<Map<String, Object>> receiveFeedback(
+            @PathVariable String fastApiSessionId,
+            @RequestBody InferenceFeedbackDto feedback) {
+        log.info("FastAPI에서 피드백 수신: fastApiSessionId={}, type={}", fastApiSessionId, feedback.getType());
+        
+        // FastAPI sessionId로 Spring sessionId 조회
+        String springSessionId = inferenceSessionService.getSpringSessionIdByFastApiSessionId(fastApiSessionId);
+        if (springSessionId == null) {
+            log.warn("FastAPI sessionId에 해당하는 Spring sessionId를 찾을 수 없음: fastApiSessionId={}", fastApiSessionId);
+            return ResponseEntity.badRequest().body(Map.of(
+                    "status", "error",
+                    "fastApiSessionId", fastApiSessionId,
+                    "message", "세션을 찾을 수 없습니다."
+            ));
+        }
+        
+        boolean success = inferenceFeedbackService.sendFeedbackToApp(springSessionId, feedback);
+        
+        if (success) {
+            return ResponseEntity.ok(Map.of(
+                    "status", "success",
+                    "springSessionId", springSessionId,
+                    "fastApiSessionId", fastApiSessionId,
+                    "message", "피드백이 앱으로 전달되었습니다."
+            ));
+        } else {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "status", "error",
+                    "springSessionId", springSessionId,
+                    "fastApiSessionId", fastApiSessionId,
+                    "message", "피드백 전달에 실패했습니다."
+            ));
+        }
     }
 }
 

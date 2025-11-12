@@ -6,8 +6,12 @@
 * **Base URL**: `http://54.86.161.187:8080`
 * **WS Base**: `ws://54.86.161.187:8080`
 * **Content-Type**: `application/json; charset=utf-8`
-* **인증**: WebSocket 접속 시 `?token=<wsToken>` (게스트/유저 공통). REST는 현재 공개(향후 Bearer 예정).
-* **시간**: Unix epoch sec 또는 ISO-8601
+* **인증**: 
+  - WebSocket(STOMP) 접속 시 `?token=<wsToken>` (게스트/유저 공통)
+  - REST API는 현재 공개 (향후 Bearer 토큰 예정)
+  - OAuth2 지원: 카카오, 네이버, 애플, 구글
+* **시간**: Unix epoch sec (밀리초) 또는 ISO-8601
+* **데이터베이스**: MySQL (54.86.161.187:3306/squirretDB)
 * **오류 포맷(공통)**:
 
 ```json
@@ -52,12 +56,14 @@ enum API {
 
 ### 3.1 게스트 세션 발급
 
-* **POST** `/internal/session` (바디 없음)
+* **POST** `/internal/session` (바디 없음 또는 빈 JSON `{}`)
 * **응답 200**
 
 ```json
-{ "sessionId": "e0e1c6af-...", "wsToken": "eyJhbGciOi..." }
+{ "sessionId": "e0e1c6af-...", "wsToken": "stomp-token-placeholder" }
 ```
+
+**참고**: 현재 구현에서는 `wsToken`이 placeholder로 반환됩니다. 실제 STOMP 연결 시 JWT 토큰이 필요합니다.
 
 **Swift**
 
@@ -437,11 +443,25 @@ curl -s -X POST -H "Content-Type: application/json" \
   -d '{"userId":"user123"}' \
   http://54.86.161.187:8080/api/session | jq
 
-# 7) 토큰 갱신
+# 7) FastAPI에서 피드백 전송 테스트 (내부 엔드포인트)
+# 주의: {fastApiSessionId}는 FastAPI에서 받은 세션 ID를 사용해야 합니다
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{
+    "type": "analysis",
+    "frameNumber": 1,
+    "state": "SIT",
+    "side": "left",
+    "squatCount": 5,
+    "checks": {"back": "good", "knee": "too forward", "ankle": "good"},
+    "timestamp": 1730892345000
+  }' \
+  http://54.86.161.187:8080/api/internal/inference/{fastApiSessionId}/feedback | jq
+
+# 8) 토큰 갱신
 curl -s -X POST -H "Content-Type: application/json" \
   http://54.86.161.187:8080/api/session/{sessionId}/refresh | jq
 
-# 8) 세션 완료
+# 9) 세션 완료
 curl -s -X POST -H "Content-Type: application/json" \
   -d '{"framesIn":150,"framesOut":150,"durationSeconds":30}' \
   http://54.86.161.187:8080/api/session/{sessionId}/finish | jq
@@ -449,21 +469,24 @@ curl -s -X POST -H "Content-Type: application/json" \
 
 ---
 
-## 8) FastAPI 웹소켓 연결 가이드 (하이브리드 구조)
+## 8) FastAPI Squat AI Service 연동 가이드 (REST API 기반)
 
 ### 8.1 아키텍처 개요
 
-* **Spring (컨트롤 플레인)**: 세션/토큰 발급, 레이트리밋, 로깅, 과금
-  - **역할**: 세션 생성, 토큰 발급/갱신, 세션 완료 처리만 담당
-  - **웹소켓 프록시 없음**: Spring은 웹소켓 연결을 중계하지 않음
+* **Spring (컨트롤 플레인)**: 세션 관리, 피드백 중계, 레이트리밋, 로깅
+  - **역할**: FastAPI 세션 생성, 세션 매핑, 피드백을 앱으로 전달 (STOMP 웹소켓)
+  - **FastAPI 세션 생성**: Spring이 FastAPI에 세션 생성 요청
   
-* **FastAPI (데이터 플레인)**: 웹소켓으로 직접 연결, 영상 분석 처리
-  - **역할**: 앱과 직접 웹소켓 연결, 영상 프레임 수신 및 분석, 결과 전송
+* **FastAPI Squat AI Service (데이터 플레인)**: REST API 기반 영상 분석 처리
+  - **역할**: REST API로 프레임 업로드 받기, 분석 수행, 분석 결과 반환
+  - **Base URL**: `https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io`
+  - **프로토콜**: REST API (multipart/form-data 파일 업로드)
   
-* **iOS 앱**: Spring에서 세션 받아서 FastAPI WebSocket에 **직접** 연결
-  - **1단계**: Spring API 호출 → `wsUrl`, `wsToken` 수신
-  - **2단계**: 받은 `wsUrl?token=wsToken`으로 FastAPI에 **직접** 연결
-  - **3단계**: FastAPI와 직접 통신 (Spring 경유 없음)
+* **iOS 앱**: Spring에서 세션 받아서 FastAPI REST API에 **직접** 프레임 업로드
+  - **1단계**: Spring API 호출 → `sessionId`, `fastApiUrl`, `fastApiSessionId` 수신
+  - **2단계**: FastAPI REST API에 프레임 업로드 (`POST /api/session/{fastApiSessionId}/frame`)
+  - **3단계**: FastAPI 분석 결과를 Spring으로 전송 (FastAPI에서 자동 처리)
+  - **4단계**: Spring이 STOMP 웹소켓으로 앱에 피드백 전달
 
 ### 8.1.1 연결 흐름도
 
@@ -472,32 +495,37 @@ curl -s -X POST -H "Content-Type: application/json" \
 │ iOS 앱  │                    │ Spring  │                    │ FastAPI │
 └────┬────┘                    └────┬────┘                    └────┬────┘
      │                              │                              │
-     │  1. POST /api/session        │                              │
+     │  1. STOMP 웹소켓 연결         │                              │
      │─────────────────────────────>│                              │
      │                              │                              │
-     │  2. {sessionId, wsUrl, wsToken}                              │
+     │  2. POST /api/session        │                              │
+     │─────────────────────────────>│                              │
+     │                              │  3. POST /api/session?side=auto│
+     │                              │─────────────────────────────>│
+     │                              │  4. "session_7f83a1f3"       │
+     │                              │<─────────────────────────────│
+     │  5. {sessionId, fastApiUrl, fastApiSessionId}                │
      │<─────────────────────────────│                              │
      │                              │                              │
-     │  3. wsUrl?token=wsToken 연결  │                              │
+     │  6. POST /api/session/{fastApiSessionId}/frame (프레임 업로드)│
      │────────────────────────────────────────────────────────────>│
      │                              │                              │
-     │  4. 영상 프레임 전송          │                              │
-     │────────────────────────────────────────────────────────────>│
-     │                              │                              │
-     │  5. 분석 결과 수신            │                              │
+     │  7. 분석 결과 응답            │                              │
      │<────────────────────────────────────────────────────────────│
+     │                              │  8. POST /internal/inference/{fastApiSessionId}/feedback│
+     │                              │<─────────────────────────────│
+     │  9. STOMP로 피드백 전달       │                              │
+     │<─────────────────────────────│                              │
      │                              │                              │
-     │  6. POST /api/session/{id}/refresh (토큰 갱신 필요 시)        │
-     │─────────────────────────────>│                              │
-     │                              │                              │
-     │  7. POST /api/session/{id}/finish (세션 종료 시)            │
+     │  10. POST /api/session/{id}/finish (세션 종료 시)           │
      │─────────────────────────────>│                              │
 ```
 
 **핵심 포인트**:
-- ✅ Spring은 **세션 발급만** 담당 (웹소켓 연결 중계 안 함)
-- ✅ 앱 → FastAPI는 **직접 연결** (Spring 경유 없음)
-- ✅ Spring API는 세션 관리용으로만 사용 (토큰 갱신, 세션 완료)
+- ✅ Spring은 **FastAPI 세션 생성 및 피드백 중계** 담당
+- ✅ 앱 → FastAPI는 **REST API로 직접 프레임 업로드** (Spring 경유 없음)
+- ✅ FastAPI → Spring: 분석 결과를 HTTP POST로 전송
+- ✅ Spring → 앱: STOMP 웹소켓으로 피드백 전달
 
 ### 8.2 Spring 세션 발급 API
 
@@ -506,32 +534,43 @@ curl -s -X POST -H "Content-Type: application/json" \
 * **POST** `/api/session`
 * **요청**:
 ```json
-{ "userId": "user123" }
+{ 
+  "userId": "user123",
+  "side": "auto"  // "auto", "left", "right" (선택사항, 기본값: "auto")
+}
 ```
 
 * **응답 200**:
 ```json
 {
-  "sessionId": "e0e1c6af-...",
-  "wsUrl": "ws://inference.your.com/ws/e0e1c6af-...",
-  "wsToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "sessionId": "e0e1c6af-...",  // Spring 세션 ID
+  "fastApiUrl": "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io",
+  "fastApiSessionId": "session_7f83a1f3"  // FastAPI 세션 ID (프레임 업로드 시 사용)
 }
 ```
+
+**설명**:
+- `sessionId`: Spring 세션 ID (세션 관리용)
+- `fastApiUrl`: FastAPI base URL (앱이 직접 접근)
+- `fastApiSessionId`: FastAPI 세션 ID (프레임 업로드 시 경로에 사용)
 
 **Swift**
 ```swift
 struct InferenceSession: Decodable {
-    let sessionId: String
-    let wsUrl: String
-    let wsToken: String
+    let sessionId: String  // Spring 세션 ID
+    let fastApiUrl: String  // FastAPI base URL
+    let fastApiSessionId: String  // FastAPI 세션 ID
 }
 
-func createInferenceSession(userId: String) async throws -> InferenceSession {
+func createInferenceSession(userId: String, side: String = "auto") async throws -> InferenceSession {
     let url = URL(string: "\(API.base)/api/session")!
     var req = URLRequest(url: url)
     req.httpMethod = "POST"
     req.addValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.httpBody = try JSONSerialization.data(withJSONObject: ["userId": userId])
+    req.httpBody = try JSONSerialization.data(withJSONObject: [
+        "userId": userId,
+        "side": side
+    ])
     let (data, _) = try await URLSession.shared.data(for: req)
     return try JSONDecoder().decode(InferenceSession.self, from: data)
 }
@@ -584,136 +623,102 @@ func refreshInferenceToken(sessionId: String) async throws -> RefreshTokenRespon
 }
 ```
 
-### 8.3 FastAPI 웹소켓 연결 (iOS)
+### 8.3 FastAPI REST API 프레임 업로드 (iOS)
 
-#### 8.3.1 연결 방법
+#### 8.3.1 프레임 업로드 방법
 
-**중요**: Spring에서 세션만 발급받고, **앱에서 FastAPI 웹소켓에 직접 연결**합니다.
+**중요**: Spring에서 세션만 발급받고, **앱에서 FastAPI REST API에 직접 프레임 업로드**합니다.
 
 1. **Spring에서 세션 발급**:
    ```swift
-   let session = try await createInferenceSession(userId: "user123")
-   // session.wsUrl = "ws://inference.your.com/ws/e0e1c6af-..."
-   // session.wsToken = "eyJhbGciOi..."
+   let session = try await createInferenceSession(userId: "user123", side: "auto")
+   // session.fastApiUrl = "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io"
+   // session.fastApiSessionId = "session_7f83a1f3"
    ```
 
-2. **FastAPI에 직접 연결** (Spring 경유 없음):
+2. **FastAPI에 프레임 업로드** (Spring 경유 없음):
    ```swift
-   let url = URL(string: "\(session.wsUrl)?token=\(session.wsToken)")!
-   // 이 URL은 FastAPI 서버를 직접 가리킴 (Spring이 아님!)
+   func uploadFrame(imageData: Data, session: InferenceSession) async throws -> AnalysisResult {
+       let url = URL(string: "\(session.fastApiUrl)/api/session/\(session.fastApiSessionId)/frame")!
+       var request = URLRequest(url: url)
+       request.httpMethod = "POST"
+       
+       // multipart/form-data로 파일 업로드
+       let boundary = UUID().uuidString
+       request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+       
+       var body = Data()
+       body.append("--\(boundary)\r\n".data(using: .utf8)!)
+       body.append("Content-Disposition: form-data; name=\"file\"; filename=\"frame.jpg\"\r\n".data(using: .utf8)!)
+       body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+       body.append(imageData)
+       body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+       
+       request.httpBody = body
+       
+       let (data, _) = try await URLSession.shared.data(for: request)
+       return try JSONDecoder().decode(AnalysisResult.self, from: data)
+   }
    ```
 
-* **URL**: `{wsUrl}?token={wsToken}` (Spring에서 받은 값 사용, **FastAPI 서버로 직접 연결**)
-* **프로토콜**: 순수 WebSocket (JSON 또는 바이너리 프레임)
-* **인증**: 쿼리 파라미터 `token`에 JWT 토큰 전달
+* **URL**: `{fastApiUrl}/api/session/{fastApiSessionId}/frame`
+* **프로토콜**: REST API (multipart/form-data)
+* **인증**: 현재 v1.0.0 기준 인증 없음
 * **연결 경로**: `앱 → FastAPI (직접)` (Spring 거치지 않음)
 
 **Swift**
 ```swift
 import Foundation
 
-final class InferenceWebSocket {
-    private var task: URLSessionWebSocketTask?
-    private var sessionId: String?
-    private var wsUrl: String?
-    private var wsToken: String?
-    private var tokenRefreshTimer: Timer?
+struct AnalysisResult: Decodable {
+    let state: String?  // "SIT", "STAND" 등
+    let side: String?  // "left", "right"
+    let squatCount: Int?  // 스쿼트 카운트
+    let checks: [String: String]?  // {"back": "good", "knee": "too forward"} 등
+}
 
-    func connect(session: InferenceSession) {
-        self.sessionId = session.sessionId
-        self.wsUrl = session.wsUrl
-        self.wsToken = session.wsToken
-        
-        guard let wsUrl = wsUrl, let wsToken = wsToken else { return }
-        let url = URL(string: "\(wsUrl)?token=\(wsToken)")!
-        
-        task = URLSession.shared.webSocketTask(with: url)
-        task?.resume()
-        
-        // 토큰 만료 1-2분 전 갱신 타이머 시작 (15분 토큰 기준, 13분 후 갱신)
-        startTokenRefreshTimer()
-        
-        receive()
+final class FastApiClient {
+    private var session: InferenceSession?
+    
+    func setSession(_ session: InferenceSession) {
+        self.session = session
     }
-
-    private func receive() {
-        task?.receive { [weak self] result in
-            guard let self = self else { return }
-            switch result {
-            case .success(let message):
-                switch message {
-                case .string(let text):
-                    print("FastAPI WS 수신: \(text)")
-                    // JSON 파싱 후 처리
-                case .data(let data):
-                    print("FastAPI WS 수신 (바이너리): \(data.count) bytes")
-                @unknown default:
-                    break
-                }
-            case .failure(let error):
-                print("FastAPI WS 수신 오류: \(error)")
-            }
-            self.receive()
-        }
-    }
-
-    func sendFrame(imageBase64: String, frameNumber: Int) {
-        let message: [String: Any] = [
-            "type": "frame",
-            "frameNumber": frameNumber,
-            "image_base64": imageBase64,
-            "timestamp": Date().timeIntervalSince1970
-        ]
-        
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: message),
-              let jsonString = String(data: jsonData, encoding: .utf8) else {
-            return
+    
+    func uploadFrame(imageData: Data, frameNumber: Int) async throws -> AnalysisResult {
+        guard let session = session else {
+            throw NSError(domain: "FastApiClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "세션이 없습니다"])
         }
         
-        task?.send(.string(jsonString)) { error in
-            if let error = error {
-                print("FastAPI WS 전송 오류: \(error)")
-            }
-        }
-    }
-
-    private func startTokenRefreshTimer() {
-        // 13분 후 토큰 갱신 (15분 토큰의 87% 시점)
-        tokenRefreshTimer = Timer.scheduledTimer(withTimeInterval: 13 * 60, repeats: false) { [weak self] _ in
-            self?.refreshTokenAndReconnect()
-        }
-    }
-
-    private func refreshTokenAndReconnect() {
-        guard let sessionId = sessionId else { return }
+        let url = URL(string: "\(session.fastApiUrl)/api/session/\(session.fastApiSessionId)/frame")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
         
-        Task {
-            do {
-                let refreshed = try await refreshInferenceToken(sessionId: sessionId)
-                self.wsToken = refreshed.wsToken
-                
-                // 무중단 재연결
-                disconnect()
-                if let wsUrl = wsUrl, let wsToken = wsToken {
-                    let url = URL(string: "\(wsUrl)?token=\(wsToken)")!
-                    task = URLSession.shared.webSocketTask(with: url)
-                    task?.resume()
-                    startTokenRefreshTimer()
-                    receive()
-                }
-            } catch {
-                print("토큰 갱신 실패: \(error)")
-            }
+        // multipart/form-data로 파일 업로드
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"frame\(frameNumber).jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = body
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw NSError(domain: "FastApiClient", code: -2, userInfo: [NSLocalizedDescriptionKey: "업로드 실패"])
         }
+        
+        // FastAPI 분석 결과 파싱
+        return try JSONDecoder().decode(AnalysisResult.self, from: data)
     }
-
-    func disconnect() {
-        tokenRefreshTimer?.invalidate()
-        task?.cancel(with: .goingAway, reason: nil)
-    }
-
+    
     func finishSession(framesIn: Int, framesOut: Int, durationSeconds: Int) {
-        guard let sessionId = sessionId else { return }
+        guard let sessionId = session?.sessionId else { return }
         
         Task {
             let url = URL(string: "\(API.base)/api/session/\(sessionId)/finish")!
@@ -734,35 +739,42 @@ final class InferenceWebSocket {
 
 ### 8.4 사용 예시 (iOS)
 
-**전체 흐름 (3단계)**:
-1. **Spring API 호출**: 세션 발급 받기 (`POST /api/session`)
-2. **FastAPI 직접 연결**: 받은 `wsUrl`과 `wsToken`으로 FastAPI 웹소켓에 직접 연결
-3. **FastAPI와 통신**: 영상 프레임 전송, 분석 결과 수신 (Spring 경유 없음)
-4. **세션 관리**: 토큰 갱신/세션 완료는 Spring API 호출
+**전체 흐름 (4단계)**:
+1. **STOMP 웹소켓 연결**: Spring STOMP 웹소켓 연결 (피드백 수신용)
+2. **Spring API 호출**: 세션 발급 받기 (`POST /api/session`)
+3. **FastAPI REST API**: 받은 `fastApiSessionId`로 FastAPI에 프레임 업로드
+4. **피드백 수신**: STOMP 웹소켓으로 Spring에서 피드백 수신
+5. **세션 완료**: Spring API 호출 (`POST /api/session/{id}/finish`)
 
 ```swift
 @MainActor
 final class InferenceViewModel: ObservableObject {
     @Published var isConnected = false
     @Published var lastResponse: String = ""
-    private let inferenceWS = InferenceWebSocket()
+    @Published var analysisResult: AnalysisResult?
+    private let fastApiClient = FastApiClient()
+    private let wsService = WSService()  // STOMP 웹소켓 서비스
     private var frameCounter = 0
     private var sessionStartTime: Date?
+    private var session: InferenceSession?
 
     func startInference(userId: String) async {
         do {
             // ═══════════════════════════════════════════════════════
-            // 1단계: Spring에서 세션 발급 (세션 정보만 받음)
+            // 1단계: STOMP 웹소켓 연결 (피드백 수신용)
             // ═══════════════════════════════════════════════════════
-            let session = try await createInferenceSession(userId: userId)
-            print("✅ 세션 발급 완료: \(session.sessionId)")
-            print("✅ FastAPI URL: \(session.wsUrl)")
-            print("⚠️  이제 FastAPI에 직접 연결합니다 (Spring 경유 없음)")
+            let guestSession = try await issueSession()  // 게스트 세션 발급
+            wsService.connect(wsToken: guestSession.wsToken)
             
             // ═══════════════════════════════════════════════════════
-            // 2단계: FastAPI에 직접 연결 (Spring 경유 없음!)
+            // 2단계: Spring에서 세션 발급 (FastAPI 세션 생성)
             // ═══════════════════════════════════════════════════════
-            inferenceWS.connect(session: session)
+            session = try await createInferenceSession(userId: userId, side: "auto")
+            print("✅ 세션 발급 완료: \(session!.sessionId)")
+            print("✅ FastAPI URL: \(session!.fastApiUrl)")
+            print("✅ FastAPI Session ID: \(session!.fastApiSessionId)")
+            
+            fastApiClient.setSession(session!)
             sessionStartTime = Date()
             isConnected = true
         } catch {
@@ -770,154 +782,486 @@ final class InferenceViewModel: ObservableObject {
         }
     }
 
-    func sendFrame(imageData: Data) {
+    func sendFrame(imageData: Data) async {
         // ═══════════════════════════════════════════════════════
-        // 3단계: FastAPI와 직접 통신 (Spring 경유 없음)
+        // 3단계: FastAPI REST API로 프레임 업로드 (Spring 경유 없음)
         // ═══════════════════════════════════════════════════════
-        let base64 = imageData.base64EncodedString()
-        inferenceWS.sendFrame(imageBase64: base64, frameNumber: frameCounter)
-        frameCounter += 1
+        do {
+            let result = try await fastApiClient.uploadFrame(imageData: imageData, frameNumber: frameCounter)
+            analysisResult = result
+            frameCounter += 1
+            print("✅ 분석 결과: state=\(result.state ?? "N/A"), squatCount=\(result.squatCount ?? 0)")
+            
+            // FastAPI는 분석 결과를 Spring으로 자동 전송하므로,
+            // STOMP 웹소켓으로 피드백이 자동 수신됨
+        } catch {
+            lastResponse = "프레임 업로드 실패: \(error.localizedDescription)"
+        }
     }
 
     func stopInference() {
         // ═══════════════════════════════════════════════════════
         // 세션 완료: Spring API 호출 (통계 저장)
         // ═══════════════════════════════════════════════════════
+        guard let session = session else { return }
         let duration = Int((Date().timeIntervalSince(sessionStartTime ?? Date())))
-        inferenceWS.finishSession(
+        fastApiClient.finishSession(
             framesIn: frameCounter,
             framesOut: frameCounter,
             durationSeconds: duration
         )
-        inferenceWS.disconnect()
+        wsService.disconnect()
         isConnected = false
     }
 }
 ```
 
 **핵심 정리**:
-- ✅ Spring: 세션 발급만 담당 (`POST /api/session`)
-- ✅ FastAPI: 웹소켓 연결 및 영상 분석 (앱과 직접 통신)
-- ✅ 앱: Spring에서 세션 받아서 FastAPI에 직접 연결
-- ❌ Spring은 웹소켓 프록시 역할 안 함
+- ✅ Spring: FastAPI 세션 생성 및 피드백 중계 (STOMP 웹소켓)
+- ✅ FastAPI: REST API로 프레임 업로드 받기, 분석 수행, Spring으로 결과 전송
+- ✅ 앱: Spring에서 세션 받아서 FastAPI REST API에 직접 프레임 업로드
+- ✅ 피드백: FastAPI → Spring → 앱 (STOMP 웹소켓)
 
-### 8.5 FastAPI 서버 구현 예시 (Python)
+### 8.5 FastAPI 서버에서 Spring으로 피드백 전송 구현 예시 (Python)
 
 ```python
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
-import jwt
-import json
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi.responses import JSONResponse
+import httpx
+import time
 from typing import Optional
 
 app = FastAPI()
 
-# JWT 검증을 위한 공개키 (Spring의 secret과 동일한 값 사용)
-JWT_SECRET = "mySecretKey123456789012345678901234567890"
+# Spring 백엔드 URL
+SPRING_BACKEND_URL = "http://54.86.161.187:8080"
 
-def verify_jwt_token(token: str, session_id: str) -> bool:
+async def send_feedback_to_spring(fast_api_session_id: str, analysis_result: dict):
+    """Spring 백엔드로 피드백 전송"""
+    url = f"{SPRING_BACKEND_URL}/api/internal/inference/{fast_api_session_id}/feedback"
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        # aud 클레임 확인
-        if payload.get("aud") != "inference-ws":
-            return False
-        # sessionId 확인
-        if payload.get("sub") != session_id:
-            return False
-        return True
-    except jwt.ExpiredSignatureError:
-        return False
-    except jwt.InvalidTokenError:
-        return False
-
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str, token: Optional[str] = Query(None)):
-    # 토큰 검증
-    if not token or not verify_jwt_token(token, session_id):
-        await websocket.close(code=1008, reason="인증 실패")
-        return
-    
-    await websocket.accept()
-    
-    try:
-        while True:
-            # 클라이언트로부터 프레임 수신
-            data = await websocket.receive_text()
-            message = json.loads(data)
+        async with httpx.AsyncClient() as client:
+            # FastAPI 분석 결과를 Spring 피드백 형식으로 변환
+            feedback_data = {
+                "type": "analysis",
+                "state": analysis_result.get("state"),
+                "side": analysis_result.get("side"),
+                "squatCount": analysis_result.get("squat_count"),
+                "checks": analysis_result.get("checks", {}),
+                "timestamp": int(time.time() * 1000)
+            }
             
-            if message.get("type") == "frame":
-                # 영상 분석 처리
-                image_base64 = message.get("image_base64")
-                frame_number = message.get("frameNumber")
-                
-                # 분석 로직 (예시)
-                analysis_result = {
-                    "type": "analysis",
-                    "frameNumber": frame_number,
-                    "lumbar": "good",
-                    "knee": "bad",
-                    "ankle": "good",
-                    "score": 85
-                }
-                
-                # 분석 결과 전송
-                await websocket.send_text(json.dumps(analysis_result))
-                
-    except WebSocketDisconnect:
-        print(f"세션 종료: {session_id}")
+            response = await client.post(url, json=feedback_data, timeout=5.0)
+            if response.status_code == 200:
+                print(f"피드백 전송 성공: fastApiSessionId={fast_api_session_id}")
+                return True
+            else:
+                print(f"피드백 전송 실패: fastApiSessionId={fast_api_session_id}, status={response.status_code}")
+                return False
+    except Exception as e:
+        print(f"피드백 전송 오류: fastApiSessionId={fast_api_session_id}, error={e}")
+        return False
+
+@app.post("/api/session/{session_id}/frame")
+async def upload_frame(
+    session_id: str,
+    file: UploadFile = File(...),
+    include_landmarks: bool = False,
+    include_debug: bool = False
+):
+    """
+    프레임 업로드 및 분석
+    
+    FastAPI 분석 결과를 응답으로 반환하고,
+    동시에 Spring 백엔드로 피드백 전송
+    """
+    try:
+        # 이미지 파일 읽기
+        image_data = await file.read()
+        
+        # ═══════════════════════════════════════════════════════
+        # 실제 AI 분석 로직 수행 (예시)
+        # ═══════════════════════════════════════════════════════
+        analysis_result = {
+            "state": "SIT",  # "SIT", "STAND" 등
+            "side": "left",  # "left", "right"
+            "squat_count": 5,  # 스쿼트 카운트
+            "checks": {
+                "back": "good",
+                "knee": "too forward",
+                "ankle": "good"
+            }
+        }
+        
+        # ═══════════════════════════════════════════════════════
+        # 분석 결과를 Spring 백엔드로 전송 (앱으로 피드백 전달)
+        # ═══════════════════════════════════════════════════════
+        # 비동기로 전송 (응답을 블로킹하지 않음)
+        import asyncio
+        asyncio.create_task(send_feedback_to_spring(session_id, analysis_result))
+        
+        # 분석 결과를 응답으로 반환 (앱이 직접 받을 수도 있음)
+        return JSONResponse(content=analysis_result)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"분석 오류: {str(e)}")
 ```
+
+**핵심 변경사항**:
+- ✅ FastAPI에서 분석 결과를 Spring 백엔드로 HTTP POST 전송 (비동기)
+- ✅ Spring이 STOMP 웹소켓을 통해 앱에 피드백 전달
+- ✅ 분석 결과는 FastAPI 응답 형식 그대로 전송: `state`, `side`, `squatCount`, `checks`
+- ✅ Spring에서 FastAPI `checks`를 기존 `ai` 형식으로 변환하여 앱에 전달
+
+**피드백 전송 형식**:
+
+FastAPI에서 Spring으로 전송하는 형식:
+```json
+{
+  "type": "analysis",
+  "state": "SIT",
+  "side": "left",
+  "squatCount": 5,
+  "checks": {
+    "back": "good",
+    "knee": "too forward",
+    "ankle": "good"
+  },
+  "timestamp": 1730892345000
+}
+```
+
+Spring에서 앱으로 전송하는 STOMP 메시지 형식:
+```json
+{
+  "type": "DATA",
+  "payload": {
+    "ts": 1730892345000,
+    "state": "SIT",
+    "side": "left",
+    "squatCount": 5,
+    "checks": {
+      "back": "good",
+      "knee": "too forward",
+      "ankle": "good"
+    },
+    "ai": {
+      "lumbar": "good",
+      "knee": "bad",
+      "ankle": "good"
+    }
+  }
+}
+```
+
+### 8.5.1 피드백 전달 흐름
+
+```
+┌─────────┐                    ┌─────────┐                    ┌─────────┐
+│ iOS 앱  │                    │ Spring  │                    │ FastAPI │
+└────┬────┘                    └────┬────┘                    └────┬────┘
+     │                              │                              │
+     │  1. STOMP 웹소켓 연결         │                              │
+     │─────────────────────────────>│                              │
+     │                              │                              │
+     │  2. POST /api/session        │                              │
+     │─────────────────────────────>│                              │
+     │                              │  3. POST /api/session?side=auto│
+     │                              │─────────────────────────────>│
+     │                              │  4. "session_7f83a1f3"       │
+     │                              │<─────────────────────────────│
+     │  5. {sessionId, fastApiUrl, fastApiSessionId}                │
+     │<─────────────────────────────│                              │
+     │                              │                              │
+     │  6. POST /api/session/{fastApiSessionId}/frame (프레임 업로드)│
+     │────────────────────────────────────────────────────────────>│
+     │                              │                              │
+     │  7. 분석 결과 응답 (직접 수신) │                              │
+     │<────────────────────────────────────────────────────────────│
+     │                              │  8. POST /internal/inference/{fastApiSessionId}/feedback│
+     │                              │<─────────────────────────────│
+     │  9. STOMP로 피드백 전달       │                              │
+     │<─────────────────────────────│                              │
+```
+
+**핵심 포인트**:
+- ✅ 앱 → FastAPI: 비디오 프레임 전송 (REST API, multipart/form-data)
+- ✅ FastAPI → 앱: 분석 결과 응답 (HTTP 응답, 직접 수신)
+- ✅ FastAPI → Spring: 분석 결과 전송 (HTTP POST, 비동기)
+- ✅ Spring → 앱: 피드백 전달 (STOMP 웹소켓)
+- ✅ 앱은 STOMP 웹소켓(`/ws`)만 연결하면 됨 (FastAPI는 REST API)
 
 ### 8.6 운영 체크리스트
 
 * **연결 경로 명확화**: 
-  - ✅ Spring API: 세션 발급/갱신/완료만 처리 (웹소켓 중계 안 함)
-  - ✅ FastAPI: 앱과 직접 웹소켓 연결 (Spring 경유 없음)
-  - ❌ Spring은 웹소켓 프록시 역할을 하지 않음
+  - ✅ Spring API: FastAPI 세션 생성, 세션 매핑, 피드백 중계 담당
+  - ✅ FastAPI: REST API로 프레임 업로드 받기, 분석 수행, Spring으로 결과 전송
+  - ✅ Spring: FastAPI에서 받은 피드백을 STOMP 웹소켓으로 앱에 전달
+  - ✅ 앱: FastAPI REST API에 직접 프레임 업로드, STOMP 웹소켓으로 피드백 수신
   
-* **JWT 키 운영**: Spring은 비공개키로 서명, FastAPI는 동일한 secret으로 검증
 * **레이트리밋**: Spring에서 세션별 `frames_in/out`, `duration_s` 집계
-* **로깅/관찰성**: 공통 `sessionId`로 Spring API 로그 ↔ FastAPI 로그 상관추적
+* **로깅/관찰성**: 
+  - Spring sessionId와 FastAPI sessionId 매핑으로 로그 상관추적
+  - FastAPI에서 Spring으로 피드백 전송 실패 시 재시도 로직 고려
 * **LB/Nginx**: 
-  - FastAPI 서버 앞에 LB 구성 시 WebSocket 업그레이드 설정
-  - 세션 고정(해시 라우팅)으로 동일 세션은 동일 서버로 라우팅
-* **토큰 만료**: 15분 토큰, 13분 후 자동 갱신으로 무중단 재연결
+  - FastAPI 서버 앞에 LB 구성 시 일반 HTTP/HTTPS 라우팅만 필요
+  - 세션 고정(해시 라우팅)으로 동일 세션은 동일 서버로 라우팅 (선택사항)
 * **네트워크 설정**: 
   - iOS 앱에서 FastAPI 서버 URL에 직접 접근 가능해야 함
-  - 방화벽/보안 그룹에서 FastAPI 웹소켓 포트(예: 8000) 오픈 확인
+  - FastAPI에서 Spring 서버로 HTTP 요청 가능해야 함
+  - 방화벽/보안 그룹에서 FastAPI HTTP/HTTPS 포트 오픈 확인
+* **에러 처리**: 
+  - FastAPI 분석 실패 시 에러 응답 반환
+  - Spring 피드백 전송 실패 시 로그 기록 (앱은 직접 응답 받음)
 
 ### 8.7 환경 변수 설정
 
 ```bash
 # Spring application.yml 또는 환경 변수
-INFERENCE_WS_BASE_URL=ws://your-fastapi-server:8000
+FASTAPI_BASE_URL=https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io
 ```
 
 **주의사항**:
-- `INFERENCE_WS_BASE_URL`은 **FastAPI 서버의 실제 주소**여야 합니다
+- `FASTAPI_BASE_URL`은 **FastAPI 서버의 실제 주소**여야 합니다
 - iOS 앱이 이 주소에 직접 접근할 수 있어야 합니다
-- 개발 환경: `ws://localhost:8000` (시뮬레이터는 localhost 가능)
-- 운영 환경: `wss://inference.your-domain.com` (도메인 + HTTPS/WSS 권장)
+- FastAPI 서버에서 Spring 서버로 HTTP 요청 가능해야 합니다
+- 개발 환경: `http://localhost:8000` (로컬 테스트용)
+- 운영 환경: `https://squat-api.your-domain.com` (도메인 + HTTPS 권장)
 
 ### 8.8 FAQ
 
-**Q: Spring 서버를 웹소켓 프록시로 사용할 수 있나요?**  
-A: **아니요**. 현재 하이브리드 구조에서는 Spring은 세션 발급만 담당하고, 앱은 FastAPI에 직접 연결합니다.
-
-**Q: 세션만 발급하면 웹소켓 연결은 앱에서 알아서 하나요?**  
+**Q: Spring 서버가 FastAPI 세션을 생성하나요?**  
 A: **네, 맞습니다**. 
-1. Spring API(`POST /api/session`)로 세션 발급 → `wsUrl`, `wsToken` 받기
-2. 받은 `wsUrl?token=wsToken`으로 FastAPI에 **직접 연결**
-3. FastAPI와 직접 통신 (Spring 경유 없음)
+1. 앱이 Spring API(`POST /api/session`)로 세션 발급 요청
+2. Spring이 FastAPI에 세션 생성 요청 (`POST /api/session?side=auto`)
+3. Spring이 FastAPI sessionId를 받아서 Spring sessionId와 매핑
+4. 앱에 `sessionId`, `fastApiUrl`, `fastApiSessionId` 반환
+
+**Q: 앱에서 FastAPI에 어떻게 프레임을 업로드하나요?**  
+A: **REST API로 직접 업로드합니다**.
+1. Spring에서 받은 `fastApiSessionId` 사용
+2. `POST {fastApiUrl}/api/session/{fastApiSessionId}/frame`으로 multipart/form-data 업로드
+3. FastAPI가 분석 결과를 HTTP 응답으로 반환
 
 **Q: FastAPI 서버가 다운되면?**  
-A: 앱은 FastAPI와 직접 연결하므로, FastAPI 다운 시 웹소켓 연결이 끊깁니다. 재연결 로직 구현 필요.
-
-**Q: 토큰 갱신은 언제 하나요?**  
-A: 토큰 만료 1-2분 전(13분 후) 자동으로 Spring API(`POST /api/session/{id}/refresh`)를 호출해 새 토큰을 받고, FastAPI에 재연결합니다.
+A: 앱은 FastAPI REST API에 직접 요청하므로, FastAPI 다운 시 HTTP 에러가 발생합니다. 에러 처리 및 재시도 로직 구현 필요.
 
 **Q: 세션 완료는 언제 호출하나요?**  
-A: 사용자가 분석을 종료할 때 Spring API(`POST /api/session/{id}/finish`)를 호출해 통계를 저장합니다.
+A: 사용자가 분석을 종료할 때 Spring API(`POST /api/session/{id}/finish`)를 호출해 통계를 저장합니다. FastAPI 세션은 자동으로 정리되거나 명시적으로 삭제할 수 있습니다.
 
 **Q: Spring 서버와 FastAPI 서버가 다른 도메인이어도 되나요?**  
-A: **네, 가능합니다**. Spring은 세션 발급만 하고, FastAPI는 별도 서버/도메인에서 운영 가능합니다.
+A: **네, 가능합니다**. Spring은 세션 생성 및 피드백 중계만 하고, FastAPI는 별도 서버/도메인에서 운영 가능합니다. 단, FastAPI에서 Spring으로 피드백을 전송할 수 있도록 네트워크 접근이 가능해야 합니다.
 
+**Q: FastAPI에서 분석 결과를 어떻게 앱으로 전달하나요?**  
+A: **두 가지 방법이 있습니다**.
+1. **직접 응답**: FastAPI가 분석 결과를 HTTP 응답으로 바로 반환 (앱이 직접 수신)
+2. **Spring 경유**: FastAPI가 분석 결과를 Spring으로 전송 → Spring이 STOMP 웹소켓으로 앱에 피드백 전달 (비동기)
+
+**Q: 앱에서 STOMP 웹소켓 연결이 필요한가요?**  
+A: **네, 필요합니다**. Spring에서 피드백을 받기 위해 STOMP 웹소켓(`ws://spring-server:8080/ws`)에 연결해야 합니다. FastAPI는 REST API이므로 웹소켓 연결이 필요 없습니다.
+
+**Q: FastAPI에서 Spring으로 피드백을 보낼 때 인증이 필요하나요?**  
+A: **현재는 인증 없이 접근 가능합니다**. 운영 환경에서는 FastAPI 서버의 IP를 화이트리스트에 추가하거나 API 키를 사용하는 것을 권장합니다.
+
+**Q: FastAPI 분석 결과 형식은 어떻게 되나요?**  
+A: **FastAPI Squat AI Service v1.0.0 형식**:
+```json
+{
+  "state": "SIT",
+  "side": "left",
+  "squat_count": 5,
+  "checks": {
+    "back": "good",
+    "knee": "too forward",
+    "ankle": "good"
+  }
+}
 ```
+Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하여 앱에 전달합니다.
+
+---
+
+## 9) 백엔드 구현 상세
+
+### 9.1 아키텍처 개요
+
+**Spring Boot 백엔드 구조**:
+- **프레임워크**: Spring Boot (Java)
+- **데이터베이스**: MySQL
+- **WebSocket**: STOMP (Spring WebSocket Message Broker)
+- **인증**: JWT + OAuth2 (카카오, 네이버, 애플, 구글)
+- **외부 연동**: FastAPI Squat AI Service (REST API)
+
+### 9.2 주요 컴포넌트
+
+#### 9.2.1 컨트롤러 (Controllers)
+
+* **InternalSessionController** (`/api`, `/internal/session`)
+  - 게스트 세션 발급: `POST /internal/session`
+  - FastAPI 세션 발급: `POST /api/session`
+  - 토큰 갱신: `POST /api/session/{sessionId}/refresh`
+  - 세션 완료: `POST /api/session/{sessionId}/finish`
+  - FastAPI 피드백 수신: `POST /api/internal/inference/{fastApiSessionId}/feedback`
+
+* **FSRController** (`/api/fsr_data`)
+  - FSR 데이터 업로드: `POST /api/fsr_data`
+  - 최신 스냅샷: `GET /api/fsr_data/latest`
+  - 피드백: `GET /api/fsr_data/feedback`
+  - 통합 피드백: `GET /api/fsr_data/feedback/combined`
+
+* **AuthUpgradeController** (`/auth`)
+  - 세션 승격: `POST /auth/upgrade`
+
+* **AiInputController** (`/internal/ai`)
+  - AI 상태 입력: `POST /internal/ai/status`
+
+* **SessionWsController** (STOMP)
+  - 메시지 수신: `/app/session.message`
+  - 메시지 전송: `/user/queue/session`
+
+#### 9.2.2 서비스 (Services)
+
+* **InferenceSessionService**
+  - Spring 세션과 FastAPI 세션 매핑 관리
+  - 세션 생성, 토큰 갱신, 세션 완료 처리
+  - 세션 TTL: 30분, WS 토큰 TTL: 15분
+
+* **InferenceFeedbackService**
+  - FastAPI에서 받은 피드백을 앱으로 전달 (STOMP)
+  - FastAPI `checks`를 기존 `ai` 형식으로 변환
+  - 피드백 메시지 25자 제한 처리
+
+* **FastApiSessionService**
+  - FastAPI 세션 생성/조회/삭제
+  - FastAPI Base URL: `https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io`
+
+* **FSRDataService**
+  - FSR 데이터 저장 및 관리 (인메모리)
+  - 10초 윈도우 평균 계산
+  - WebSocket 브로드캐스트
+
+* **UnifiedFeedbackService**
+  - AI + FSR 통합 피드백 생성
+  - 피드백 메시지 병합 및 25자 제한
+
+* **JwtService**
+  - JWT 토큰 생성/검증
+  - 일반 토큰: 24시간, 리프레시 토큰: 7일
+  - Inference WS 토큰: 15분
+
+#### 9.2.3 WebSocket 설정
+
+* **STOMP WebSocket** (`/ws`)
+  - 엔드포인트: `ws://54.86.161.187:8080/ws?token=<wsToken>`
+  - JWT 토큰 인증 (WsJwtHandshakeInterceptor)
+  - Principal 설정 (WsPrincipalHandshakeHandler)
+  - 구독: `/user/queue/session`
+  - 송신: `/app/session.message`
+
+* **FSR WebSocket** (`/ws/fsr-data`)
+  - 엔드포인트: `ws://54.86.161.187:8080/ws/fsr-data`
+  - 순수 WebSocket (STOMP 아님)
+  - JSON 형식으로 FSR 데이터 브로드캐스트
+
+#### 9.2.4 데이터베이스
+
+* **MySQL 스키마**:
+  - `User`: 사용자 정보
+  - `WsSession`: WebSocket 세션 정보
+  - `WsMessageLog`: WebSocket 메시지 로그
+  - `WsIdentity`: WebSocket 인증 정보
+
+#### 9.2.5 설정 파일
+
+* **application.yml**:
+  - 서버 포트: 8080
+  - 데이터베이스: MySQL (54.86.161.187:3306)
+  - JWT 설정: secret, expiration
+  - FastAPI Base URL: 환경 변수 또는 기본값
+  - OAuth2 클라이언트 설정 (카카오, 네이버, 애플, 구글)
+
+### 9.3 피드백 처리 흐름
+
+1. **FastAPI → Spring**:
+   - FastAPI가 분석 완료 후 `POST /api/internal/inference/{fastApiSessionId}/feedback` 호출
+   - Spring이 `fastApiSessionId`로 `springSessionId` 조회
+   - `InferenceFeedbackService`가 피드백 변환 및 전송
+
+2. **Spring → 앱**:
+   - STOMP WebSocket으로 `/user/queue/session`에 메시지 전송
+   - 메시지 타입: `DATA` (분석 결과), `voice` (피드백 텍스트)
+   - FastAPI `checks`를 `ai` 형식으로 변환하여 포함
+
+3. **피드백 변환 규칙**:
+   - `checks.back` → `ai.lumbar`
+   - `checks.knee` → `ai.knee`
+   - `checks.ankle` → `ai.ankle`
+   - 값 정규화: "good" → "good", "too forward"/"bad" → "bad", 기타 → "null"
+
+### 9.4 세션 관리
+
+* **Spring 세션**:
+  - 세션 ID: UUID 형식
+  - TTL: 30분
+  - 상태: ACTIVE, COMPLETED, EXPIRED
+  - FastAPI 세션 ID 매핑 저장
+
+* **FastAPI 세션**:
+  - 세션 ID: "session_xxxxx" 형식
+  - Spring이 FastAPI에 세션 생성 요청
+  - 앱이 직접 FastAPI REST API에 프레임 업로드
+
+### 9.5 에러 처리
+
+* **FastAPI 피드백 수신 실패**:
+  - 세션을 찾을 수 없음: 400 Bad Request
+  - 피드백 전달 실패: 400 Bad Request (로그 기록)
+
+* **세션 관리**:
+  - 세션 만료: 400 Bad Request
+  - 세션 없음: 400 Bad Request
+
+* **FSR 데이터**:
+  - 검증 실패: 400 Bad Request (ratio1~6 ∈ [0,100])
+
+### 9.6 로깅
+
+* **주요 로그 포인트**:
+  - 세션 생성/완료
+  - FastAPI 피드백 수신/전송
+  - FSR 데이터 업데이트
+  - WebSocket 연결/해제
+
+* **로그 레벨**:
+  - Spring Security: INFO
+  - 애플리케이션: DEBUG/INFO/ERROR
+
+### 9.7 환경 변수
+
+```bash
+# OAuth2 클라이언트
+KAKAO_CLIENT_ID=...
+KAKAO_CLIENT_SECRET=...
+NAVER_CLIENT_ID=...
+NAVER_CLIENT_SECRET=...
+APPLE_SERVICE_ID=...
+APPLE_CLIENT_SECRET_JWT=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+
+# FastAPI 연동
+FASTAPI_BASE_URL=https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io
+
+# JWT
+JWT_SECRET=mySecretKey123456789012345678901234567890
+JWT_EXPIRATION=86400000  # 24시간
+JWT_REFRESH_EXPIRATION=604800000  # 7일
+```
+
+### 9.8 배포 정보
+
+* **서버**: AWS EC2 (54.86.161.187)
+* **포트**: 8080
+* **데이터베이스**: MySQL (54.86.161.187:3306)
+* **빌드**: Gradle
+* **Java 버전**: (build.gradle 확인 필요)

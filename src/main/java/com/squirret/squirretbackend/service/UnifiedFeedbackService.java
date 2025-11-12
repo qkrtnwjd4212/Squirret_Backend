@@ -26,13 +26,18 @@ public class UnifiedFeedbackService {
 
         List<String> merged = mergeMessages(aiFeedback, fsrFeedback);
         if (merged.isEmpty()) {
-            merged.add("최근에 수집된 데이터가 없어 피드백을 제공할 수 없습니다.");
+            merged.add(limitFeedbackLength("데이터 수집 중입니다", 25));
         }
+        
+        // 모든 메시지를 25자로 제한
+        List<String> limitedMessages = merged.stream()
+                .map(msg -> limitFeedbackLength(msg, 25))
+                .toList();
 
         return CombinedFeedbackResponse.builder()
                 .ai(aiFeedback)
                 .fsr(fsrFeedback)
-                .overallMessages(merged)
+                .overallMessages(limitedMessages)
                 .build();
     }
 
@@ -70,7 +75,7 @@ public class UnifiedFeedbackService {
         } else if (hasGood) {
             status = "GOOD";
             if (messages.isEmpty()) {
-                messages.add("상체 정렬이 안정적입니다. 현재 자세를 유지하세요.");
+                messages.add(limitFeedbackLength("상체 정렬이 안정적입니다", 25));
             }
         } else {
             status = "NO_DATA";
@@ -84,22 +89,50 @@ public class UnifiedFeedbackService {
     }
 
     private String messageFor(String region) {
-        return switch (region) {
-            case "lumbar", "허리" -> "허리를 곧게 펴고 복부에 힘을 주세요.";
-            case "knee", "무릎" -> "무릎이 안쪽으로 무너지고 있습니다. 정렬을 유지하세요.";
-            case "ankle", "발목" -> "발목을 안정적으로 고정하고 흔들림을 줄이세요.";
-            default -> "자세를 다시 정렬해주세요.";
+        String message = switch (region) {
+            case "lumbar", "허리" -> "허리를 곧게 펴세요";
+            case "knee", "무릎" -> "무릎 정렬을 유지하세요";
+            case "ankle", "발목" -> "발목을 고정하세요";
+            default -> "자세를 정렬해주세요";
         };
+        
+        // 피드백을 25자 이내로 제한
+        return limitFeedbackLength(message, 25);
+    }
+    
+    /**
+     * 피드백 텍스트를 지정된 길이로 제한
+     * 한글, 영문 모두 문자 수로 계산 (바이트가 아닌 문자 수)
+     * 
+     * @param text 원본 텍스트
+     * @param maxLength 최대 길이
+     * @return 제한된 텍스트 (길이가 maxLength를 초과하면 말줄임표 없이 자름)
+     */
+    private String limitFeedbackLength(String text, int maxLength) {
+        if (text == null) {
+            return "";
+        }
+        
+        if (text.length() <= maxLength) {
+            return text;
+        }
+        
+        // 25자 초과 시 앞에서부터 자름 (말줄임표 없이)
+        return text.substring(0, maxLength);
     }
 
     private List<String> mergeMessages(CombinedFeedbackResponse.AiFeedback ai, FsrFeedbackResponse fsr) {
         List<String> merged = new ArrayList<>();
+        
+        // AI 피드백 메시지 추가 (첫 번째 메시지만, 25자 제한)
         if (ai != null && !CollectionUtils.isEmpty(ai.getMessages())) {
-            merged.addAll(ai.getMessages());
+            String aiMessage = ai.getMessages().get(0);
+            merged.add(limitFeedbackLength(aiMessage, 25));
         }
 
+        // FSR 피드백 메시지 추가 (25자 제한)
         if (fsr != null && fsr.getFeedback() != null && !fsr.getFeedback().isEmpty()) {
-            merged.add(fsr.getFeedback());
+            merged.add(limitFeedbackLength(fsr.getFeedback(), 25));
         }
 
         return merged;

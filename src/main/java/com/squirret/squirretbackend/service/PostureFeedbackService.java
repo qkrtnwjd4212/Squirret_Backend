@@ -32,7 +32,7 @@ public class PostureFeedbackService {
             return FsrFeedbackResponse.builder()
                     .stage("UNKNOWN")
                     .status("NO_DATA")
-                    .feedback("최근 10초 동안 수집된 데이터가 없습니다.")
+                    .feedback("데이터 수집 중입니다")
                     .metrics(Map.of())
                     .build();
         }
@@ -57,8 +57,12 @@ public class PostureFeedbackService {
         if (finalStage.messages.isEmpty()) {
             feedback = finalStage.goodMessage;
         } else {
-            feedback = String.join(" ", finalStage.messages);
+            // 여러 메시지가 있는 경우 첫 번째 메시지만 사용하고, 25자로 제한
+            feedback = finalStage.messages.get(0);
         }
+        
+        // 피드백을 25자 이내로 제한
+        feedback = limitFeedbackLength(feedback, 25);
 
         return FsrFeedbackResponse.builder()
                 .stage(finalStage.stage)
@@ -66,6 +70,27 @@ public class PostureFeedbackService {
                 .feedback(feedback)
                 .metrics(metricMap)
                 .build();
+    }
+    
+    /**
+     * 피드백 텍스트를 지정된 길이로 제한
+     * 한글, 영문 모두 문자 수로 계산 (바이트가 아닌 문자 수)
+     * 
+     * @param text 원본 텍스트
+     * @param maxLength 최대 길이
+     * @return 제한된 텍스트 (길이가 maxLength를 초과하면 말줄임표 없이 자름)
+     */
+    private String limitFeedbackLength(String text, int maxLength) {
+        if (text == null) {
+            return "";
+        }
+        
+        if (text.length() <= maxLength) {
+            return text;
+        }
+        
+        // 25자 초과 시 앞에서부터 자름 (말줄임표 없이)
+        return text.substring(0, maxLength);
     }
 
     private CombinedMetrics calculateCombinedMetrics(FSRDataDTO leftData, FSRDataDTO rightData) {
@@ -113,30 +138,30 @@ public class PostureFeedbackService {
         boolean leftRightOK = m.leftRightDiff <= 15f;
 
         if (withinRear && withinFront && heelOK && balanceOK && leftRightOK) {
-            result.goodMessage = "하강 구간 자세가 안정적입니다. 현재 자세를 유지하세요.";
+            result.goodMessage = "하강 자세 안정적입니다";
             return result;
         }
 
         if (m.front > 40f) {
-            result.messages.add("체중이 앞쪽으로 쏠렸습니다. 뒤꿈치로 눌러주세요.");
+            result.messages.add("뒤꿈치로 체중을 이동하세요");
         }
         if (m.inner > 60f) {
-            result.messages.add("무릎이 안쪽으로 모이고 있습니다.");
+            result.messages.add("무릎 정렬을 유지하세요");
         }
         if (m.outer > 60f) {
-            result.messages.add("발 안쪽에도 힘을 주세요.");
+            result.messages.add("발 안쪽에 힘을 주세요");
         }
         if (!heelOK) {
-            result.messages.add("뒤꿈치로 체중을 충분히 실어주세요.");
+            result.messages.add("뒤꿈치에 체중을 실으세요");
         }
         if (!withinRear) {
-            result.messages.add("엉덩이를 뒤로 보내고 뒤꿈치를 중심으로 내려앉으세요.");
+            result.messages.add("뒤꿈치 중심으로 내려앉으세요");
         }
         if (!balanceOK) {
-            result.messages.add("좌우 체중 균형을 맞춰주세요.");
+            result.messages.add("좌우 균형을 맞추세요");
         }
         if (!leftRightOK) {
-            result.messages.add("양발에 체중을 균등하게 분배하세요.");
+            result.messages.add("양발에 균등하게 체중 배분");
         }
         return result;
     }
@@ -151,30 +176,30 @@ public class PostureFeedbackService {
         boolean leftRightOK = m.leftRightDiff <= 15f;
 
         if (rearOK && frontOK && heelOK && balanceOK && leftRightOK) {
-            result.goodMessage = "상승 구간 자세가 안정적입니다. 그대로 일어나세요.";
+            result.goodMessage = "상승 자세 안정적입니다";
             return result;
         }
 
         if (m.heel < 40f) {
-            result.messages.add("뒤꿈치가 들리고 있습니다.");
+            result.messages.add("뒤꿈치를 바닥에 붙이세요");
         }
         if (m.outer > 60f) {
-            result.messages.add("발 안쪽에도 힘을 주세요.");
+            result.messages.add("발 안쪽에 힘을 주세요");
         }
         if (m.inner > 60f) {
-            result.messages.add("무릎이 안쪽으로 붕괴되고 있습니다.");
+            result.messages.add("무릎 정렬을 유지하세요");
         }
         if (!rearOK || !frontOK) {
-            result.messages.add("상체를 곧게 세우고 앞뒤 체중을 균형 있게 분배하세요.");
+            result.messages.add("상체를 곧게 세우세요");
         }
         if (!balanceOK) {
-            result.messages.add("좌우 균형을 맞춰 일어나세요.");
+            result.messages.add("좌우 균형을 맞추세요");
         }
         if (!heelOK) {
-            result.messages.add("뒤꿈치를 바닥에 단단히 붙이고 올라오세요.");
+            result.messages.add("뒤꿈치를 바닥에 붙이세요");
         }
         if (!leftRightOK) {
-            result.messages.add("양발에 체중을 균등하게 분배하세요.");
+            result.messages.add("양발에 균등하게 체중 배분");
         }
         return result;
     }
@@ -222,7 +247,7 @@ public class PostureFeedbackService {
     private static class StageResult {
         final String stage;
         final List<String> messages = new ArrayList<>();
-        String goodMessage = "좋은 자세입니다. 계속 유지하세요.";
+        String goodMessage = "좋은 자세입니다";
 
         StageResult(String stage) {
             this.stage = stage;

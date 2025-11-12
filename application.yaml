@@ -17,47 +17,14 @@ spring:
         format-sql: true
     hibernate:
       ddl-auto: update	# 실서버에서는 validate로 설정해야 한다!
-  security:
-    oauth2:
-      client:
-        registration:
-          kakao:
-            client-id: ${KAKAO_CLIENT_ID:your-kakao-client-id}
-            client-secret: ${KAKAO_CLIENT_SECRET:your-kakao-client-secret}
-            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
-            authorization-grant-type: authorization_code
-            scope: profile_nickname, account_email
-          google:
-            client-id: ${GOOGLE_CLIENT_ID:your-google-client-id}
-            client-secret: ${GOOGLE_CLIENT_SECRET:your-google-client-secret}
-            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
-            authorization-grant-type: authorization_code
-            scope: openid, profile, email
-          apple:
-            client-id: ${APPLE_CLIENT_ID:your-apple-client-id}
-            client-secret: ${APPLE_CLIENT_SECRET:your-apple-client-secret}
-            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
-            authorization-grant-type: authorization_code
-            scope: name, email
-        provider:
-          kakao:
-            authorization-uri: https://kauth.kakao.com/oauth/authorize
-            token-uri: https://kauth.kakao.com/oauth/token
-            user-info-uri: https://kapi.kakao.com/v2/user/me
-            user-name-attribute: id
-          google:
-            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
-            token-uri: https://www.googleapis.com/oauth2/v4/token
-            user-info-uri: https://www.googleapis.com/oauth2/v2/userinfo
-            user-name-attribute: sub
-          apple:
-            authorization-uri: https://appleid.apple.com/auth/authorize
-            token-uri: https://appleid.apple.com/auth/token
-            user-info-uri: https://appleid.apple.com/auth/userinfo
-            user-name-attribute: sub
 
-# JWT 설정
+# JWT 설정 (FastAPI 통신용으로만 사용)
 jwt:
   secret: mySecretKey123456789012345678901234567890
   expiration: 86400000  # 24시간 (밀리초)
   refresh-expiration: 604800000  # 7일 (밀리초)
+
+# FastAPI 설정
+inference:
+  ws:
+    base-url: ws://localhost:8000

@@ -2,13 +2,12 @@ package com.squirret.squirretbackend;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.oauth2.client.servlet.OAuth2ClientAutoConfiguration;
 
-@SpringBootApplication(exclude = {
-    SecurityAutoConfiguration.class,
-    OAuth2ClientAutoConfiguration.class
-})
+/**
+ * Squirret Backend Application - Guest Mode
+ * 게스트 전용 모드로 동작하며 사용자 인증 없이 모든 기능을 사용할 수 있습니다.
+ */
+@SpringBootApplication
 public class SquirretbackendApplication {
 
 	public static void main(String[] args) {

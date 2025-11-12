@@ -54,11 +54,42 @@ public class FeedbackPushService {
     }
 
     private String resolveFeedback(Map<String, String> ai) {
-        if (ai == null || ai.isEmpty()) return "뒷꿈치를 좀 더 누르세요";
-        if ("bad".equals(ai.get("lumbar"))) return "허리를 곧게 펴세요";
-        if ("bad".equals(ai.get("knee"))) return "무릎이 앞으로 나가지 않게 하세요";
-        if ("bad".equals(ai.get("ankle"))) return "뒷꿈치를 좀 더 누르세요";
-        return "좋아요! 지금 자세를 유지하세요";
+        String feedback;
+        if (ai == null || ai.isEmpty()) {
+            feedback = "뒷꿈치에 체중을 실으세요";
+        } else if ("bad".equals(ai.get("lumbar"))) {
+            feedback = "허리를 곧게 펴세요";
+        } else if ("bad".equals(ai.get("knee"))) {
+            feedback = "무릎 정렬을 유지하세요";
+        } else if ("bad".equals(ai.get("ankle"))) {
+            feedback = "뒷꿈치에 체중을 실으세요";
+        } else {
+            feedback = "좋은 자세입니다";
+        }
+        
+        // 피드백을 25자 이내로 제한
+        return limitFeedbackLength(feedback, 25);
+    }
+    
+    /**
+     * 피드백 텍스트를 지정된 길이로 제한
+     * 한글, 영문 모두 문자 수로 계산 (바이트가 아닌 문자 수)
+     * 
+     * @param text 원본 텍스트
+     * @param maxLength 최대 길이
+     * @return 제한된 텍스트 (길이가 maxLength를 초과하면 말줄임표 없이 자름)
+     */
+    private String limitFeedbackLength(String text, int maxLength) {
+        if (text == null) {
+            return "";
+        }
+        
+        if (text.length() <= maxLength) {
+            return text;
+        }
+        
+        // 25자 초과 시 앞에서부터 자름 (말줄임표 없이)
+        return text.substring(0, maxLength);
     }
 }
 
