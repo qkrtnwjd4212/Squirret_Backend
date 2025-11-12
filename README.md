@@ -95,9 +95,10 @@ docker-compose up -d
 - `GET /api/fsr_data/feedback/combined` - 종합 피드백 조회
 
 ### AI 추론 세션
-- `POST /api/session` - 추론 세션 생성
-- `POST /api/session/{sessionId}/refresh` - 세션 토큰 갱신
-- `POST /api/session/{sessionId}/finish` - 세션 완료
+- `POST /api/session` - 프론트에서 발급받은 FastAPI 세션을 백엔드에 등록
+  - 요청 본문: `{ "userId": "게스트ID", "fastApiSessionId": "FastAPI에서 발급받은 세션ID" }`
+  - 응답: `{ "sessionId": "Spring 세션 ID", "fastApiUrl": null, "fastApiSessionId": "FastAPI 세션 ID" }`
+- `POST /api/session/{sessionId}/finish` - 세션 완료 (Spring 세션 ID 사용)
 
 ### 세션 업그레이드
 - `POST /auth/upgrade` - 세션 업그레이드 (게스트 ID 기반)
@@ -108,6 +109,7 @@ docker-compose up -d
 2. **게스트 ID**: 각 클라이언트는 UUID 기반 게스트 ID를 사용합니다.
 3. **세션 관리**: 게스트 세션은 서버에서 자동으로 생성됩니다.
 4. **데이터 격리**: 게스트 ID를 기반으로 데이터를 구분합니다.
+5. **FastAPI 통신**: 프론트엔드가 FastAPI와 직접 통신하며, 백엔드는 세션 정보만 저장합니다.
 
 ## 사용 예시
 
@@ -122,6 +124,28 @@ curl -X POST http://localhost:8080/api/guest/session
 {
   "guestId": "550e8400-e29b-41d4-a716-446655440000",
   "message": "게스트 세션이 생성되었습니다."
+}
+```
+
+### FastAPI 세션 등록
+
+프론트엔드가 FastAPI에서 세션을 발급받은 후, 백엔드에 등록:
+
+```bash
+curl -X POST http://localhost:8080/api/session \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "fastApiSessionId": "session_7f83a1f3"
+  }'
+```
+
+응답:
+```json
+{
+  "sessionId": "spring-session-uuid",
+  "fastApiUrl": null,
+  "fastApiSessionId": "session_7f83a1f3"
 }
 ```
 

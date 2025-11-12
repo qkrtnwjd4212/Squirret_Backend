@@ -438,9 +438,13 @@ curl -s -X POST -H "Content-Type: application/json" \
   -d '{"lumbar":"good","knee":"bad","ankle":"null"}' \
   http://54.86.161.187:8080/internal/ai/status | jq
 
-# 6) FastAPI 웹소켓 세션 발급
+# 6) FastAPI에서 세션 발급 (FastAPI 서버 직접 호출)
+curl -s -X POST \
+  "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io/api/session?side=auto"
+
+# 6-1) Spring에 FastAPI 세션 등록
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"userId":"user123"}' \
+  -d '{"userId":"user123","fastApiSessionId":"session_7f83a1f3"}' \
   http://54.86.161.187:8080/api/session | jq
 
 # 7) FastAPI에서 피드백 전송 테스트 (내부 엔드포인트)
@@ -457,10 +461,6 @@ curl -s -X POST -H "Content-Type: application/json" \
   }' \
   http://54.86.161.187:8080/api/internal/inference/{fastApiSessionId}/feedback | jq
 
-# 8) 토큰 갱신
-curl -s -X POST -H "Content-Type: application/json" \
-  http://54.86.161.187:8080/api/session/{sessionId}/refresh | jq
-
 # 9) 세션 완료
 curl -s -X POST -H "Content-Type: application/json" \
   -d '{"framesIn":150,"framesOut":150,"durationSeconds":30}' \
@@ -473,20 +473,21 @@ curl -s -X POST -H "Content-Type: application/json" \
 
 ### 8.1 아키텍처 개요
 
-* **Spring (컨트롤 플레인)**: 세션 관리, 피드백 중계, 레이트리밋, 로깅
-  - **역할**: FastAPI 세션 생성, 세션 매핑, 피드백을 앱으로 전달 (STOMP 웹소켓)
-  - **FastAPI 세션 생성**: Spring이 FastAPI에 세션 생성 요청
+* **Spring (컨트롤 플레인)**: 세션 매핑, 피드백 중계, 레이트리밋, 로깅
+  - **역할**: 프론트에서 받은 FastAPI 세션 ID를 저장하고, 피드백을 앱으로 전달 (STOMP 웹소켓)
+  - **세션 저장**: 프론트엔드가 FastAPI에서 발급받은 세션 ID를 백엔드에 등록
   
 * **FastAPI Squat AI Service (데이터 플레인)**: REST API 기반 영상 분석 처리
-  - **역할**: REST API로 프레임 업로드 받기, 분석 수행, 분석 결과 반환
+  - **역할**: REST API로 세션 발급, 프레임 업로드 받기, 분석 수행, 분석 결과 반환
   - **Base URL**: `https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io`
   - **프로토콜**: REST API (multipart/form-data 파일 업로드)
   
-* **iOS 앱**: Spring에서 세션 받아서 FastAPI REST API에 **직접** 프레임 업로드
-  - **1단계**: Spring API 호출 → `sessionId`, `fastApiUrl`, `fastApiSessionId` 수신
-  - **2단계**: FastAPI REST API에 프레임 업로드 (`POST /api/session/{fastApiSessionId}/frame`)
-  - **3단계**: FastAPI 분석 결과를 Spring으로 전송 (FastAPI에서 자동 처리)
-  - **4단계**: Spring이 STOMP 웹소켓으로 앱에 피드백 전달
+* **iOS 앱**: FastAPI에서 직접 세션 발급 후, FastAPI REST API에 **직접** 프레임 업로드
+  - **1단계**: FastAPI에서 세션 발급 (`POST /api/session`)
+  - **2단계**: Spring에 FastAPI 세션 ID 등록 (`POST /api/session`)
+  - **3단계**: FastAPI REST API에 프레임 업로드 (`POST /api/session/{fastApiSessionId}/frame`)
+  - **4단계**: FastAPI 분석 결과를 Spring으로 전송 (FastAPI에서 자동 처리)
+  - **5단계**: Spring이 STOMP 웹소켓으로 앱에 피드백 전달
 
 ### 8.1.1 연결 흐름도
 
@@ -498,13 +499,14 @@ curl -s -X POST -H "Content-Type: application/json" \
      │  1. STOMP 웹소켓 연결         │                              │
      │─────────────────────────────>│                              │
      │                              │                              │
-     │  2. POST /api/session        │                              │
+     │  2. POST /api/session?side=auto (FastAPI에서 세션 발급)      │
+     │────────────────────────────────────────────────────────────>│
+     │  3. "session_7f83a1f3"       │                              │
+     │<────────────────────────────────────────────────────────────│
+     │                              │                              │
+     │  4. POST /api/session (FastAPI 세션 ID를 Spring에 등록)     │
      │─────────────────────────────>│                              │
-     │                              │  3. POST /api/session?side=auto│
-     │                              │─────────────────────────────>│
-     │                              │  4. "session_7f83a1f3"       │
-     │                              │<─────────────────────────────│
-     │  5. {sessionId, fastApiUrl, fastApiSessionId}                │
+     │  5. {sessionId, fastApiUrl: null, fastApiSessionId}        │
      │<─────────────────────────────│                              │
      │                              │                              │
      │  6. POST /api/session/{fastApiSessionId}/frame (프레임 업로드)│
@@ -517,89 +519,93 @@ curl -s -X POST -H "Content-Type: application/json" \
      │  9. STOMP로 피드백 전달       │                              │
      │<─────────────────────────────│                              │
      │                              │                              │
-     │  10. POST /api/session/{id}/finish (세션 종료 시)           │
+     │  10. POST /api/session/{springSessionId}/finish (세션 종료 시)│
      │─────────────────────────────>│                              │
 ```
 
 **핵심 포인트**:
-- ✅ Spring은 **FastAPI 세션 생성 및 피드백 중계** 담당
+- ✅ 앱이 **FastAPI에서 직접 세션 발급** 받음
+- ✅ Spring은 **FastAPI 세션 ID를 저장하고 피드백 중계** 담당
 - ✅ 앱 → FastAPI는 **REST API로 직접 프레임 업로드** (Spring 경유 없음)
 - ✅ FastAPI → Spring: 분석 결과를 HTTP POST로 전송
 - ✅ Spring → 앱: STOMP 웹소켓으로 피드백 전달
 
-### 8.2 Spring 세션 발급 API
+### 8.2 FastAPI 세션 발급 및 Spring 등록
 
-#### 8.2.1 세션 생성
+#### 8.2.1 FastAPI에서 세션 발급
+
+* **POST** `{fastApiUrl}/api/session?side=auto`
+* **FastAPI Base URL**: `https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io`
+* **요청**: 쿼리 파라미터
+  - `side`: "auto", "left", "right" (선택사항, 기본값: "auto")
+
+* **응답 200**:
+```json
+"session_7f83a1f3"  // FastAPI 세션 ID (문자열)
+```
+
+**Swift**
+```swift
+func createFastApiSession(side: String = "auto") async throws -> String {
+    let url = URL(string: "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io/api/session?side=\(side)")!
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    let (data, _) = try await URLSession.shared.data(for: req)
+    // FastAPI는 세션 ID를 문자열로 반환
+    let sessionId = String(data: data, encoding: .utf8)?.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
+    return sessionId
+}
+```
+
+#### 8.2.2 Spring에 FastAPI 세션 등록
 
 * **POST** `/api/session`
 * **요청**:
 ```json
 { 
-  "userId": "user123",
-  "side": "auto"  // "auto", "left", "right" (선택사항, 기본값: "auto")
+  "userId": "user123",  // 게스트 ID (선택사항, 기본값: "guest")
+  "fastApiSessionId": "session_7f83a1f3"  // FastAPI에서 발급받은 세션 ID (필수)
 }
 ```
 
 * **응답 200**:
 ```json
 {
-  "sessionId": "e0e1c6af-...",  // Spring 세션 ID
-  "fastApiUrl": "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io",
-  "fastApiSessionId": "session_7f83a1f3"  // FastAPI 세션 ID (프레임 업로드 시 사용)
+  "sessionId": "e0e1c6af-...",  // Spring 세션 ID (백엔드 내부 관리용)
+  "fastApiUrl": null,  // 더 이상 사용하지 않음
+  "fastApiSessionId": "session_7f83a1f3"  // FastAPI 세션 ID
 }
 ```
 
 **설명**:
-- `sessionId`: Spring 세션 ID (세션 관리용)
-- `fastApiUrl`: FastAPI base URL (앱이 직접 접근)
+- `sessionId`: Spring 세션 ID (백엔드 내부 관리용, 세션 완료 시 사용)
+- `fastApiUrl`: null (더 이상 사용하지 않음)
 - `fastApiSessionId`: FastAPI 세션 ID (프레임 업로드 시 경로에 사용)
 
 **Swift**
 ```swift
 struct InferenceSession: Decodable {
     let sessionId: String  // Spring 세션 ID
-    let fastApiUrl: String  // FastAPI base URL
+    let fastApiUrl: String?  // null (더 이상 사용하지 않음)
     let fastApiSessionId: String  // FastAPI 세션 ID
 }
 
+// 전체 흐름: FastAPI에서 세션 발급 → Spring에 등록
 func createInferenceSession(userId: String, side: String = "auto") async throws -> InferenceSession {
+    // 1단계: FastAPI에서 세션 발급
+    let fastApiSessionId = try await createFastApiSession(side: side)
+    
+    // 2단계: Spring에 FastAPI 세션 ID 등록
     let url = URL(string: "\(API.base)/api/session")!
     var req = URLRequest(url: url)
     req.httpMethod = "POST"
     req.addValue("application/json", forHTTPHeaderField: "Content-Type")
     req.httpBody = try JSONSerialization.data(withJSONObject: [
         "userId": userId,
-        "side": side
+        "fastApiSessionId": fastApiSessionId
     ])
     let (data, _) = try await URLSession.shared.data(for: req)
     return try JSONDecoder().decode(InferenceSession.self, from: data)
-}
-```
-
-#### 8.2.2 토큰 갱신
-
-* **POST** `/api/session/{sessionId}/refresh`
-* **응답 200**:
-```json
-{
-  "sessionId": "e0e1c6af-...",
-  "wsToken": "NEW_TOKEN_JWT"
-}
-```
-
-**Swift**
-```swift
-struct RefreshTokenResponse: Decodable {
-    let sessionId: String
-    let wsToken: String
-}
-
-func refreshInferenceToken(sessionId: String) async throws -> RefreshTokenResponse {
-    let url = URL(string: "\(API.base)/api/session/\(sessionId)/refresh")!
-    var req = URLRequest(url: url)
-    req.httpMethod = "POST"
-    let (data, _) = try await URLSession.shared.data(for: req)
-    return try JSONDecoder().decode(RefreshTokenResponse.self, from: data)
 }
 ```
 
@@ -627,19 +633,21 @@ func refreshInferenceToken(sessionId: String) async throws -> RefreshTokenRespon
 
 #### 8.3.1 프레임 업로드 방법
 
-**중요**: Spring에서 세션만 발급받고, **앱에서 FastAPI REST API에 직접 프레임 업로드**합니다.
+**중요**: FastAPI에서 직접 세션을 발급받고, **앱에서 FastAPI REST API에 직접 프레임 업로드**합니다.
 
-1. **Spring에서 세션 발급**:
+1. **FastAPI에서 세션 발급 및 Spring에 등록**:
    ```swift
    let session = try await createInferenceSession(userId: "user123", side: "auto")
-   // session.fastApiUrl = "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io"
-   // session.fastApiSessionId = "session_7f83a1f3"
+   // session.sessionId = "spring-session-uuid" (백엔드 내부 관리용)
+   // session.fastApiSessionId = "session_7f83a1f3" (FastAPI 세션 ID)
    ```
 
 2. **FastAPI에 프레임 업로드** (Spring 경유 없음):
    ```swift
-   func uploadFrame(imageData: Data, session: InferenceSession) async throws -> AnalysisResult {
-       let url = URL(string: "\(session.fastApiUrl)/api/session/\(session.fastApiSessionId)/frame")!
+    func uploadFrame(imageData: Data, session: InferenceSession) async throws -> AnalysisResult {
+        // FastAPI Base URL은 하드코딩 또는 설정에서 가져옴
+        let fastApiBaseUrl = "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io"
+        let url = URL(string: "\(fastApiBaseUrl)/api/session/\(session.fastApiSessionId)/frame")!
        var request = URLRequest(url: url)
        request.httpMethod = "POST"
        
@@ -689,7 +697,9 @@ final class FastApiClient {
             throw NSError(domain: "FastApiClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "세션이 없습니다"])
         }
         
-        let url = URL(string: "\(session.fastApiUrl)/api/session/\(session.fastApiSessionId)/frame")!
+        // FastAPI Base URL은 하드코딩 또는 설정에서 가져옴
+        let fastApiBaseUrl = "https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io"
+        let url = URL(string: "\(fastApiBaseUrl)/api/session/\(session.fastApiSessionId)/frame")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         
@@ -739,12 +749,13 @@ final class FastApiClient {
 
 ### 8.4 사용 예시 (iOS)
 
-**전체 흐름 (4단계)**:
+**전체 흐름 (5단계)**:
 1. **STOMP 웹소켓 연결**: Spring STOMP 웹소켓 연결 (피드백 수신용)
-2. **Spring API 호출**: 세션 발급 받기 (`POST /api/session`)
-3. **FastAPI REST API**: 받은 `fastApiSessionId`로 FastAPI에 프레임 업로드
-4. **피드백 수신**: STOMP 웹소켓으로 Spring에서 피드백 수신
-5. **세션 완료**: Spring API 호출 (`POST /api/session/{id}/finish`)
+2. **FastAPI에서 세션 발급**: FastAPI API 호출 (`POST {fastApiUrl}/api/session`)
+3. **Spring에 세션 등록**: FastAPI 세션 ID를 Spring에 등록 (`POST /api/session`)
+4. **FastAPI REST API**: 받은 `fastApiSessionId`로 FastAPI에 프레임 업로드
+5. **피드백 수신**: STOMP 웹소켓으로 Spring에서 피드백 수신
+6. **세션 완료**: Spring API 호출 (`POST /api/session/{springSessionId}/finish`)
 
 ```swift
 @MainActor
@@ -767,11 +778,10 @@ final class InferenceViewModel: ObservableObject {
             wsService.connect(wsToken: guestSession.wsToken)
             
             // ═══════════════════════════════════════════════════════
-            // 2단계: Spring에서 세션 발급 (FastAPI 세션 생성)
+            // 2단계: FastAPI에서 세션 발급 및 Spring에 등록
             // ═══════════════════════════════════════════════════════
             session = try await createInferenceSession(userId: userId, side: "auto")
-            print("✅ 세션 발급 완료: \(session!.sessionId)")
-            print("✅ FastAPI URL: \(session!.fastApiUrl)")
+            print("✅ Spring 세션 ID: \(session!.sessionId)")
             print("✅ FastAPI Session ID: \(session!.fastApiSessionId)")
             
             fastApiClient.setSession(session!)
@@ -817,9 +827,10 @@ final class InferenceViewModel: ObservableObject {
 ```
 
 **핵심 정리**:
-- ✅ Spring: FastAPI 세션 생성 및 피드백 중계 (STOMP 웹소켓)
-- ✅ FastAPI: REST API로 프레임 업로드 받기, 분석 수행, Spring으로 결과 전송
-- ✅ 앱: Spring에서 세션 받아서 FastAPI REST API에 직접 프레임 업로드
+- ✅ 앱: FastAPI에서 직접 세션 발급 받기
+- ✅ Spring: FastAPI 세션 ID 저장 및 피드백 중계 (STOMP 웹소켓)
+- ✅ FastAPI: REST API로 세션 발급, 프레임 업로드 받기, 분석 수행, Spring으로 결과 전송
+- ✅ 앱: FastAPI REST API에 직접 프레임 업로드
 - ✅ 피드백: FastAPI → Spring → 앱 (STOMP 웹소켓)
 
 ### 8.5 FastAPI 서버에서 Spring으로 피드백 전송 구현 예시 (Python)
@@ -964,13 +975,14 @@ Spring에서 앱으로 전송하는 STOMP 메시지 형식:
      │  1. STOMP 웹소켓 연결         │                              │
      │─────────────────────────────>│                              │
      │                              │                              │
-     │  2. POST /api/session        │                              │
+     │  2. POST /api/session?side=auto (FastAPI에서 세션 발급)      │
+     │────────────────────────────────────────────────────────────>│
+     │  3. "session_7f83a1f3"       │                              │
+     │<────────────────────────────────────────────────────────────│
+     │                              │                              │
+     │  4. POST /api/session (FastAPI 세션 ID를 Spring에 등록)     │
      │─────────────────────────────>│                              │
-     │                              │  3. POST /api/session?side=auto│
-     │                              │─────────────────────────────>│
-     │                              │  4. "session_7f83a1f3"       │
-     │                              │<─────────────────────────────│
-     │  5. {sessionId, fastApiUrl, fastApiSessionId}                │
+     │  5. {sessionId, fastApiUrl: null, fastApiSessionId}         │
      │<─────────────────────────────│                              │
      │                              │                              │
      │  6. POST /api/session/{fastApiSessionId}/frame (프레임 업로드)│
@@ -985,6 +997,9 @@ Spring에서 앱으로 전송하는 STOMP 메시지 형식:
 ```
 
 **핵심 포인트**:
+- ✅ 앱 → FastAPI: 세션 발급 요청 (REST API)
+- ✅ FastAPI → 앱: 세션 ID 응답 (문자열)
+- ✅ 앱 → Spring: FastAPI 세션 ID 등록 (REST API)
 - ✅ 앱 → FastAPI: 비디오 프레임 전송 (REST API, multipart/form-data)
 - ✅ FastAPI → 앱: 분석 결과 응답 (HTTP 응답, 직접 수신)
 - ✅ FastAPI → Spring: 분석 결과 전송 (HTTP POST, 비동기)
@@ -994,10 +1009,11 @@ Spring에서 앱으로 전송하는 STOMP 메시지 형식:
 ### 8.6 운영 체크리스트
 
 * **연결 경로 명확화**: 
-  - ✅ Spring API: FastAPI 세션 생성, 세션 매핑, 피드백 중계 담당
-  - ✅ FastAPI: REST API로 프레임 업로드 받기, 분석 수행, Spring으로 결과 전송
+  - ✅ 앱: FastAPI에서 직접 세션 발급, FastAPI REST API에 직접 프레임 업로드
+  - ✅ Spring API: FastAPI 세션 ID 저장, 세션 매핑, 피드백 중계 담당
+  - ✅ FastAPI: REST API로 세션 발급, 프레임 업로드 받기, 분석 수행, Spring으로 결과 전송
   - ✅ Spring: FastAPI에서 받은 피드백을 STOMP 웹소켓으로 앱에 전달
-  - ✅ 앱: FastAPI REST API에 직접 프레임 업로드, STOMP 웹소켓으로 피드백 수신
+  - ✅ 앱: STOMP 웹소켓으로 피드백 수신
   
 * **레이트리밋**: Spring에서 세션별 `frames_in/out`, `duration_s` 집계
 * **로깅/관찰성**: 
@@ -1030,18 +1046,20 @@ FASTAPI_BASE_URL=https://squat-api.blackmoss-f506213d.koreacentral.azurecontaine
 
 ### 8.8 FAQ
 
-**Q: Spring 서버가 FastAPI 세션을 생성하나요?**  
-A: **네, 맞습니다**. 
-1. 앱이 Spring API(`POST /api/session`)로 세션 발급 요청
-2. Spring이 FastAPI에 세션 생성 요청 (`POST /api/session?side=auto`)
-3. Spring이 FastAPI sessionId를 받아서 Spring sessionId와 매핑
-4. 앱에 `sessionId`, `fastApiUrl`, `fastApiSessionId` 반환
+**Q: 누가 FastAPI 세션을 생성하나요?**  
+A: **앱이 직접 FastAPI에서 생성합니다**. 
+1. 앱이 FastAPI API(`POST {fastApiUrl}/api/session?side=auto`)로 세션 발급 요청
+2. FastAPI가 세션 ID 반환 (`"session_7f83a1f3"`)
+3. 앱이 Spring API(`POST /api/session`)로 FastAPI 세션 ID를 전달하여 등록
+4. Spring이 FastAPI sessionId를 받아서 Spring sessionId와 매핑하여 저장
+5. 앱에 `sessionId`(Spring 세션 ID), `fastApiUrl`(null), `fastApiSessionId` 반환
 
 **Q: 앱에서 FastAPI에 어떻게 프레임을 업로드하나요?**  
 A: **REST API로 직접 업로드합니다**.
-1. Spring에서 받은 `fastApiSessionId` 사용
-2. `POST {fastApiUrl}/api/session/{fastApiSessionId}/frame`으로 multipart/form-data 업로드
+1. FastAPI에서 받은 `fastApiSessionId` 사용 (또는 Spring 등록 시 받은 `fastApiSessionId`)
+2. `POST {fastApiBaseUrl}/api/session/{fastApiSessionId}/frame`으로 multipart/form-data 업로드
 3. FastAPI가 분석 결과를 HTTP 응답으로 반환
+4. FastAPI Base URL은 하드코딩하거나 설정에서 가져옴
 
 **Q: FastAPI 서버가 다운되면?**  
 A: 앱은 FastAPI REST API에 직접 요청하므로, FastAPI 다운 시 HTTP 에러가 발생합니다. 에러 처리 및 재시도 로직 구현 필요.
@@ -1050,7 +1068,7 @@ A: 앱은 FastAPI REST API에 직접 요청하므로, FastAPI 다운 시 HTTP �
 A: 사용자가 분석을 종료할 때 Spring API(`POST /api/session/{id}/finish`)를 호출해 통계를 저장합니다. FastAPI 세션은 자동으로 정리되거나 명시적으로 삭제할 수 있습니다.
 
 **Q: Spring 서버와 FastAPI 서버가 다른 도메인이어도 되나요?**  
-A: **네, 가능합니다**. Spring은 세션 생성 및 피드백 중계만 하고, FastAPI는 별도 서버/도메인에서 운영 가능합니다. 단, FastAPI에서 Spring으로 피드백을 전송할 수 있도록 네트워크 접근이 가능해야 합니다.
+A: **네, 가능합니다**. 앱이 FastAPI에서 직접 세션을 발급받고, Spring은 세션 저장 및 피드백 중계만 합니다. FastAPI는 별도 서버/도메인에서 운영 가능하며, FastAPI에서 Spring으로 피드백을 전송할 수 있도록 네트워크 접근이 가능해야 합니다.
 
 **Q: FastAPI에서 분석 결과를 어떻게 앱으로 전달하나요?**  
 A: **두 가지 방법이 있습니다**.
@@ -1098,8 +1116,7 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
 
 * **InternalSessionController** (`/api`, `/internal/session`)
   - 게스트 세션 발급: `POST /internal/session`
-  - FastAPI 세션 발급: `POST /api/session`
-  - 토큰 갱신: `POST /api/session/{sessionId}/refresh`
+  - FastAPI 세션 등록: `POST /api/session` (프론트에서 받은 FastAPI 세션 ID 저장)
   - 세션 완료: `POST /api/session/{sessionId}/finish`
   - FastAPI 피드백 수신: `POST /api/internal/inference/{fastApiSessionId}/feedback`
 
@@ -1123,8 +1140,9 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
 
 * **InferenceSessionService**
   - Spring 세션과 FastAPI 세션 매핑 관리
-  - 세션 생성, 토큰 갱신, 세션 완료 처리
-  - 세션 TTL: 30분, WS 토큰 TTL: 15분
+  - 프론트에서 받은 FastAPI 세션 ID 저장
+  - 세션 완료 처리
+  - 세션 TTL: 30분
 
 * **InferenceFeedbackService**
   - FastAPI에서 받은 피드백을 앱으로 전달 (STOMP)
@@ -1132,8 +1150,7 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
   - 피드백 메시지 25자 제한 처리
 
 * **FastApiSessionService**
-  - FastAPI 세션 생성/조회/삭제
-  - FastAPI Base URL: `https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io`
+  - (더 이상 사용하지 않음 - 앱이 FastAPI에서 직접 세션 발급)
 
 * **FSRDataService**
   - FSR 데이터 저장 및 관리 (인메모리)
@@ -1145,9 +1162,8 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
   - 피드백 메시지 병합 및 25자 제한
 
 * **JwtService**
-  - JWT 토큰 생성/검증
+  - JWT 토큰 생성/검증 (FastAPI 통신용으로만 사용)
   - 일반 토큰: 24시간, 리프레시 토큰: 7일
-  - Inference WS 토큰: 15분
 
 #### 9.2.3 WebSocket 설정
 
@@ -1208,7 +1224,7 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
 
 * **FastAPI 세션**:
   - 세션 ID: "session_xxxxx" 형식
-  - Spring이 FastAPI에 세션 생성 요청
+  - 앱이 FastAPI에서 직접 세션 발급
   - 앱이 직접 FastAPI REST API에 프레임 업로드
 
 ### 9.5 에러 처리

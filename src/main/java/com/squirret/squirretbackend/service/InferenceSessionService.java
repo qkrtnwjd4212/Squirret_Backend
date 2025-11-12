@@ -1,7 +1,6 @@
 package com.squirret.squirretbackend.service;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -15,61 +14,48 @@ import java.util.concurrent.ConcurrentHashMap;
 public class InferenceSessionService {
 
     private static final Duration SESSION_TTL = Duration.ofMinutes(30);
-    private static final Duration WS_TOKEN_TTL = Duration.ofMinutes(15);
 
-    @Value("${inference.ws.base-url:ws://localhost:8000}")
-    private String inferenceWsBaseUrl;
-
-    private final JwtService jwtService;
-    private final FastApiSessionService fastApiSessionService;
     private final Map<String, SessionInfo> sessions = new ConcurrentHashMap<>();
 
-    public InferenceSessionService(JwtService jwtService, FastApiSessionService fastApiSessionService) {
-        this.jwtService = jwtService;
-        this.fastApiSessionService = fastApiSessionService;
+    public InferenceSessionService() {
     }
 
     /**
-     * 세션 생성 (FastAPI 세션과 매핑)
+     * 프론트에서 발급받은 FastAPI 세션을 백엔드에 등록
      * 
-     * @param userId 사용자 ID
-     * @param side 분석 방향 ("auto", "left", "right"), null이면 "auto"
-     * @return 세션 정보
+     * @param userId 사용자 ID (게스트 ID)
+     * @param fastApiSessionId 프론트에서 FastAPI로부터 발급받은 세션 ID
+     * @return Spring 세션 정보
      */
-    public CreateSessionResponse createSession(String userId, String side) {
-        // Spring 세션 ID 생성
-        String springSessionId = UUID.randomUUID().toString();
+    public CreateSessionResponse registerFastApiSession(String userId, String fastApiSessionId) {
+        if (fastApiSessionId == null || fastApiSessionId.trim().isEmpty()) {
+            throw new IllegalArgumentException("FastAPI 세션 ID가 필요합니다.");
+        }
         
-        // FastAPI 세션 생성
-        String fastApiSessionId = fastApiSessionService.createFastApiSession(side);
+        // Spring 세션 ID 생성 (백엔드 내부 관리용)
+        String springSessionId = UUID.randomUUID().toString();
         
         // Spring 세션 정보에 FastAPI 세션 ID 저장
         SessionInfo info = new SessionInfo(springSessionId, userId, Instant.now(), SessionStatus.ACTIVE);
         info.setFastApiSessionId(fastApiSessionId);
         sessions.put(springSessionId, info);
 
-        log.info("세션 생성: springSessionId={}, fastApiSessionId={}, userId={}, side={}", 
-            springSessionId, fastApiSessionId, userId, side);
-        
-        // FastAPI는 REST API이므로 wsUrl은 FastAPI base URL로 설정
-        String fastApiUrl = fastApiSessionService.getFastApiBaseUrl();
+        log.info("FastAPI 세션 등록: springSessionId={}, fastApiSessionId={}, userId={}", 
+            springSessionId, fastApiSessionId, userId);
         
         return new CreateSessionResponse(
             springSessionId, 
-            fastApiUrl, 
-            fastApiSessionId  // wsToken 대신 fastApiSessionId 반환
+            null,  // fastApiUrl은 더 이상 필요 없음 (프론트가 직접 관리)
+            fastApiSessionId
         );
     }
     
+
     /**
-     * 세션 생성 (기존 메서드 호환성)
-     */
-    public CreateSessionResponse createSession(String userId) {
-        return createSession(userId, "auto");
-    }
-    
-    /**
-     * FastAPI 세션 ID로 Spring 세션 ID 조회
+     * 세션 조회 (FastAPI 세션 ID로)
+     * 
+     * @param fastApiSessionId FastAPI 세션 ID
+     * @return Spring 세션 ID (없으면 null)
      */
     public String getSpringSessionIdByFastApiSessionId(String fastApiSessionId) {
         return sessions.values().stream()
@@ -77,23 +63,6 @@ public class InferenceSessionService {
                 .map(SessionInfo::getSessionId)
                 .findFirst()
                 .orElse(null);
-    }
-
-    public RefreshTokenResponse refreshToken(String sessionId) {
-        SessionInfo info = sessions.get(sessionId);
-        if (info == null || info.getStatus() != SessionStatus.ACTIVE) {
-            throw new IllegalArgumentException("세션을 찾을 수 없거나 비활성화되었습니다: " + sessionId);
-        }
-
-        // 세션 만료 확인
-        if (Instant.now().isAfter(info.getCreatedAt().plus(SESSION_TTL))) {
-            sessions.remove(sessionId);
-            throw new IllegalArgumentException("세션이 만료되었습니다: " + sessionId);
-        }
-
-        String wsToken = jwtService.generateInferenceWsToken(sessionId, WS_TOKEN_TTL.toMillis());
-        log.info("토큰 갱신: sessionId={}", sessionId);
-        return new RefreshTokenResponse(sessionId, wsToken);
     }
 
     public void finishSession(String sessionId, SessionStats stats) {
@@ -145,12 +114,11 @@ public class InferenceSessionService {
 
     /**
      * 세션 생성 응답
-     * - sessionId: Spring 세션 ID
-     * - fastApiUrl: FastAPI base URL (앱이 직접 접근)
-     * - fastApiSessionId: FastAPI 세션 ID (앱이 프레임 업로드 시 사용)
+     * - sessionId: Spring 세션 ID (백엔드 내부 관리용)
+     * - fastApiUrl: null (더 이상 사용하지 않음)
+     * - fastApiSessionId: FastAPI 세션 ID (프론트에서 발급받은 것)
      */
     public record CreateSessionResponse(String sessionId, String fastApiUrl, String fastApiSessionId) {}
-    public record RefreshTokenResponse(String sessionId, String wsToken) {}
     public record SessionStats(Integer framesIn, Integer framesOut, Long durationSeconds) {}
 
     private static class SessionInfo {

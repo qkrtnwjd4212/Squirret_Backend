@@ -34,25 +34,27 @@ public class InternalSessionController {
     }
 
     /**
-     * FastAPI 세션 발급 (REST API 기반)
-     * Spring에서 FastAPI 세션을 생성하고 매핑
+     * 프론트에서 발급받은 FastAPI 세션을 백엔드에 등록
+     * 
+     * 프론트엔드가 FastAPI에서 세션을 발급받은 후, 그 세션 ID를 백엔드에 전달하여 저장합니다.
+     * 
+     * @param body 요청 본문
+     *   - userId: 게스트 ID (선택사항, 기본값: "guest")
+     *   - fastApiSessionId: 프론트에서 FastAPI로부터 발급받은 세션 ID (필수)
+     * @return 등록된 세션 정보
      */
     @PostMapping("/session")
-    public ResponseEntity<InferenceSessionService.CreateSessionResponse> createInferenceSession(
-            @RequestBody(required = false) Map<String, String> body) {
-        String userId = body != null ? body.getOrDefault("userId", "guest") : "guest";
-        String side = body != null ? body.getOrDefault("side", "auto") : "auto";
-        InferenceSessionService.CreateSessionResponse response = inferenceSessionService.createSession(userId, side);
-        return ResponseEntity.ok(response);
-    }
-
-    /**
-     * 토큰 갱신
-     */
-    @PostMapping("/session/{sessionId}/refresh")
-    public ResponseEntity<InferenceSessionService.RefreshTokenResponse> refreshToken(
-            @PathVariable String sessionId) {
-        InferenceSessionService.RefreshTokenResponse response = inferenceSessionService.refreshToken(sessionId);
+    public ResponseEntity<InferenceSessionService.CreateSessionResponse> registerFastApiSession(
+            @RequestBody Map<String, String> body) {
+        if (body == null || !body.containsKey("fastApiSessionId")) {
+            return ResponseEntity.badRequest().build();
+        }
+        
+        String userId = body.getOrDefault("userId", "guest");
+        String fastApiSessionId = body.get("fastApiSessionId");
+        
+        InferenceSessionService.CreateSessionResponse response = 
+            inferenceSessionService.registerFastApiSession(userId, fastApiSessionId);
         return ResponseEntity.ok(response);
     }
 
