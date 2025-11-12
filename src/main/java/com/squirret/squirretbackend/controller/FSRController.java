@@ -42,9 +42,8 @@ public class FSRController {
     public ResponseEntity<FsrFeedbackResponse> getFeedback() {
         log.info("=== 종합 자세 피드백 요청 ===");
         FsrFeedbackResponse feedback = postureFeedbackService.getOverallFeedback();
-        log.info("종합 피드백 생성 완료 - leftStatus={}, rightStatus={}",
-                feedback.getLeft() != null ? feedback.getLeft().getStatus() : "null",
-                feedback.getRight() != null ? feedback.getRight().getStatus() : "null");
+        log.info("종합 피드백 생성 완료 - stage={}, status={}", 
+                feedback.getStage(), feedback.getStatus());
         return ResponseEntity.ok(feedback);
     }
 

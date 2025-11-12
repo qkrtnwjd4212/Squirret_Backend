@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.squirret.squirretbackend.entity.WsMessageLog;
 import com.squirret.squirretbackend.repository.WsMessageLogRepository;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.handler.annotation.SendToUser;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 
 import java.security.Principal;
@@ -17,15 +17,16 @@ public class SessionWsController {
 
     private final WsMessageLogRepository logRepository;
     private final ObjectMapper objectMapper;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public SessionWsController(WsMessageLogRepository logRepository, ObjectMapper objectMapper) {
+    public SessionWsController(WsMessageLogRepository logRepository, ObjectMapper objectMapper, SimpMessagingTemplate messagingTemplate) {
         this.logRepository = logRepository;
         this.objectMapper = objectMapper;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @MessageMapping("/session.message")
-    @SendToUser("/queue/session")
-    public Map<String, Object> handle(Map<String, Object> req, Principal principal) throws JsonProcessingException {
+    public void handle(Map<String, Object> req, Principal principal) throws JsonProcessingException {
         String actor = principal != null ? principal.getName() : "anonymous";
         String type = (String) req.getOrDefault("type", "UNKNOWN");
         String payloadJson = objectMapper.writeValueAsString(req);
@@ -37,12 +38,15 @@ public class SessionWsController {
         log.setCreatedAt(LocalDateTime.now());
         logRepository.save(log);
 
-        return Map.of(
+        Map<String, Object> response = Map.of(
                 "ok", true,
                 "type", type,
                 "echo", req,
                 "ts", System.currentTimeMillis()
         );
+
+        // SimpMessagingTemplate을 사용하여 사용자에게 메시지 전송
+        messagingTemplate.convertAndSendToUser(actor, "/queue/session", response);
     }
 }
 

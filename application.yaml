@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: squirretbackend
+  main:
+    allow-circular-references: true
   datasource:
     url: jdbc:mysql://54.86.161.187:3306/squirretDB
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -28,3 +30,14 @@ jwt:
 inference:
   ws:
     base-url: ws://localhost:8000
+
+# SpringDoc OpenAPI (Swagger) 설정
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    operationsSorter: method
+    tagsSorter: alpha
+  show-actuator: false

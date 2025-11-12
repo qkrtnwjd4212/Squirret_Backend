@@ -2,8 +2,8 @@ package com.squirret.squirretbackend.service;
 
 import com.squirret.squirretbackend.dto.FSRDataDTO;
 import com.squirret.squirretbackend.handler.FSRWebSocketHandler;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -15,12 +15,15 @@ import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class FSRDataService {
 
     private static final long WINDOW_MILLIS = 10_000;
 
     private final FSRWebSocketHandler fsrWebSocketHandler;
+
+    public FSRDataService(@Lazy FSRWebSocketHandler fsrWebSocketHandler) {
+        this.fsrWebSocketHandler = fsrWebSocketHandler;
+    }
 
     private final AtomicReference<FSRDataDTO> latestLeftData = new AtomicReference<>();
     private final AtomicReference<FSRDataDTO> latestRightData = new AtomicReference<>();
