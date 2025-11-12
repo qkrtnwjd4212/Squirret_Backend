@@ -28,16 +28,56 @@
 
 ## 1) 전체 흐름 한눈에
 
-1. **게스트 세션 발급** → `sessionId`, `wsToken` 획득
-2. **STOMP 연결**(`ws://54.86.161.187:8080/ws?token=...`) → **개인 큐**(`/user/queue/session`) 구독
-3. **앱 → 서버 송신**(`/app/session.message`) 필요 시 사용
-4. **FSR(깔창) 데이터**: REST(스냅샷/피드백) + WS(실시간) 병행
+1. **게스트 세션 발급** → `guestId` 획득 (`POST /api/guest/session`)
+2. **STOMP 연결**(`ws://54.86.161.187:8080/ws`) → **개인 큐**(`/user/queue/session`) 구독 (게스트 모드: 토큰 없이도 연결 가능)
+3. **FastAPI 세션 발급 및 등록**: FastAPI에서 세션 발급 → Spring에 등록 (`POST /api/session`)
+4. **앱 → 서버 송신**(`/app/session.message`) 필요 시 사용
+5. **FSR(깔창) 데이터**: REST(스냅샷/피드백) + WS(실시간) 병행
 
 ---
 
 ## 3) 세션/인증 API
 
 ### 3.1 게스트 세션 발급
+
+* **POST** `/api/guest/session` (바디 없음)
+* **응답 200**
+
+```json
+{
+  "guestId": "e0e1c6af-1234-5678-90ab-cdef12345678",
+  "message": "게스트 세션이 생성되었습니다."
+}
+```
+
+**설명**: 게스트 모드에서는 사용자 인증 없이 게스트 ID만 발급받습니다. 이 ID는 선택적으로 사용할 수 있습니다.
+
+### 3.2 게스트 세션 조회
+
+* **GET** `/api/guest/session/{guestId}`
+* **응답 200**
+
+```json
+{
+  "guestId": "e0e1c6af-1234-5678-90ab-cdef12345678",
+  "valid": true,
+  "message": "유효한 게스트 세션입니다."
+}
+```
+
+### 3.3 게스트 헬스 체크
+
+* **GET** `/api/guest/health`
+* **응답 200**
+
+```json
+{
+  "status": "ok",
+  "mode": "guest"
+}
+```
+
+### 3.4 내부 세션 발급 (레거시)
 
 * **POST** `/internal/session` (바디 없음 또는 빈 JSON `{}`)
 * **응답 200**
@@ -46,7 +86,7 @@
 { "sessionId": "e0e1c6af-...", "wsToken": "stomp-token-placeholder" }
 ```
 
-**참고**: 현재 구현에서는 `wsToken`이 placeholder로 반환됩니다. 실제 STOMP 연결 시 JWT 토큰이 필요합니다.
+**참고**: 이 엔드포인트는 레거시 호환성을 위해 유지되지만, 게스트 모드에서는 `/api/guest/session` 사용을 권장합니다. STOMP 연결은 토큰 없이도 가능합니다.
 
 ---
 
@@ -54,11 +94,12 @@
 
 ### 4.1 연결 정보
 
-* **URL**: `ws://54.86.161.187:8080/ws?token=<wsToken>`
+* **URL**: `ws://54.86.161.187:8080/ws` (게스트 모드: 토큰 없이도 연결 가능)
 * **프로토콜**: 순수 WebSocket + STOMP 1.2
 * **필수**: 모든 STOMP 프레임 끝에 널 문자 `\u0000`
 * **구독**: `/user/queue/session`
 * **송신**: `/app/session.message` (JSON)
+* **게스트 모드**: 토큰 없이 연결 시 자동으로 게스트 ID가 생성됩니다
 
 ### 4.2 메시지 규격(서버→앱 예시)
 
@@ -179,7 +220,10 @@
 ```bash
 # 1) 게스트 세션 발급
 curl -s -X POST -H "Content-Type: application/json" \
-  http://54.86.161.187:8080/internal/session | jq
+  http://54.86.161.187:8080/api/guest/session | jq
+
+# 1-1) 게스트 헬스 체크
+curl -s http://54.86.161.187:8080/api/guest/health | jq
 
 # 2) FSR 최신 스냅샷
 curl -s http://54.86.161.187:8080/api/fsr_data/latest | jq
@@ -201,7 +245,7 @@ curl -s -X POST \
 
 # 6-1) Spring에 FastAPI 세션 등록
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"userId":"user123","fastApiSessionId":"session_7f83a1f3"}' \
+  -d '{"userId":"guest-123","fastApiSessionId":"session_7f83a1f3"}' \
   http://54.86.161.187:8080/api/session | jq
 
 # 7) FastAPI에서 피드백 전송 테스트 (내부 엔드포인트)
@@ -307,7 +351,7 @@ curl -s -X POST -H "Content-Type: application/json" \
 * **요청**:
 ```json
 { 
-  "userId": "user123",  // 게스트 ID (선택사항, 기본값: "guest")
+  "userId": "guest-123",  // 게스트 ID (선택사항, 기본값: "guest")
   "fastApiSessionId": "session_7f83a1f3"  // FastAPI에서 발급받은 세션 ID (필수)
 }
 ```
@@ -668,8 +712,13 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
 
 #### 9.2.1 컨트롤러 (Controllers)
 
+* **GuestController** (`/api/guest`)
+  - 게스트 세션 생성: `POST /api/guest/session`
+  - 게스트 세션 조회: `GET /api/guest/session/{guestId}`
+  - 헬스 체크: `GET /api/guest/health`
+
 * **InternalSessionController** (`/api`, `/internal/session`)
-  - 게스트 세션 발급: `POST /internal/session`
+  - 내부 세션 발급 (레거시): `POST /internal/session`
   - FastAPI 세션 등록: `POST /api/session` (프론트에서 받은 FastAPI 세션 ID 저장)
   - 세션 완료: `POST /api/session/{sessionId}/finish`
   - FastAPI 피드백 수신: `POST /api/internal/inference/{fastApiSessionId}/feedback`
@@ -817,4 +866,5 @@ JWT_EXPIRATION=86400000  # 24시간
 * **포트**: 8080
 * **데이터베이스**: MySQL (54.86.161.187:3306)
 * **빌드**: Gradle
-* **Java 버전**: (build.gradle 확인 필요)
+* **Java 버전**: 17
+* **Spring Boot 버전**: 3.4.4
