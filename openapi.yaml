@@ -122,31 +122,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/SessionIssueResponse'
 
-  /auth/upgrade:
-    post:
-      tags: [Session]
-      summary: 세션 승격 (guest→user)
-      description: 게스트 세션을 사용자 세션으로 승격합니다.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpgradeRequest'
-      responses:
-        '200':
-          description: 성공
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UpgradeResponse'
-        '400':
-          description: 잘못된 요청
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
   # ============================================
   # AI 추론 세션 관리
   # ============================================
@@ -374,40 +349,6 @@ components:
         wsToken:
           type: string
           description: WebSocket 토큰 (현재는 placeholder)
-
-    # 세션 승격
-    UpgradeRequest:
-      type: object
-      required: [userId, sessionId]
-      properties:
-        userId:
-          type: string
-          format: uuid
-          description: 사용자 ID
-        sessionId:
-          type: string
-          format: uuid
-          description: 세션 ID
-        email:
-          type: string
-          format: email
-          description: 이메일 (선택사항)
-
-    UpgradeResponse:
-      type: object
-      properties:
-        sessionId:
-          type: string
-          format: uuid
-        wsToken:
-          type: string
-          description: 새로운 사용자 토큰
-        guestId:
-          type: string
-          format: uuid
-        mode:
-          type: string
-          example: "guest"
 
     # 추론 세션
     RegisterSessionRequest:

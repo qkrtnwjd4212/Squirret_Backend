@@ -32,8 +32,7 @@
 1. **게스트 세션 발급** → `sessionId`, `wsToken` 획득
 2. **STOMP 연결**(`ws://54.86.161.187:8080/ws?token=...`) → **개인 큐**(`/user/queue/session`) 구독
 3. **앱 → 서버 송신**(`/app/session.message`) 필요 시 사용
-4. **로그인 후 승격**(guest→user) → 새 `wsToken`으로 재연결
-5. **FSR(깔창) 데이터**: REST(스냅샷/피드백) + WS(실시간) 병행
+4. **FSR(깔창) 데이터**: REST(스냅샷/피드백) + WS(실시간) 병행
 
 ---
 
@@ -49,21 +48,6 @@
 ```
 
 **참고**: 현재 구현에서는 `wsToken`이 placeholder로 반환됩니다. 실제 STOMP 연결 시 JWT 토큰이 필요합니다.
-
-### 3.2 승격(guest→user)
-
-* **POST** `/auth/upgrade`
-* **요청**
-
-```json
-{ "userId":"<UUID>", "sessionId":"<세션ID>", "email":"user@example.com" }
-```
-
-* **응답 200**
-
-```json
-{ "sessionId":"e0e1c6af-...", "wsToken":"NEW_USER_TOKEN_JWT" }
-```
 
 ---
 
@@ -207,12 +191,7 @@ curl -s http://54.86.161.187:8080/api/fsr_data/feedback | jq
 # 3-1) AI + FSR 통합 피드백
 curl -s http://54.86.161.187:8080/api/fsr_data/feedback/combined | jq
 
-# 4) 세션 승격 (로그인 후)
-curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"userId":"<UUID>","sessionId":"<세션ID>","email":"user@example.com"}' \
-  http://54.86.161.187:8080/auth/upgrade | jq
-
-# 5) AI 상태 입력(내부)
+# 4) AI 상태 입력(내부)
 curl -s -X POST -H "Content-Type: application/json" \
   -d '{"lumbar":"good","knee":"bad","ankle":"null"}' \
   http://54.86.161.187:8080/internal/ai/status | jq
@@ -701,9 +680,6 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
   - 최신 스냅샷: `GET /api/fsr_data/latest`
   - 피드백: `GET /api/fsr_data/feedback`
   - 통합 피드백: `GET /api/fsr_data/feedback/combined`
-
-* **AuthUpgradeController** (`/auth`)
-  - 세션 승격: `POST /auth/upgrade`
 
 * **AiInputController** (`/internal/ai`)
   - AI 상태 입력: `POST /internal/ai/status`

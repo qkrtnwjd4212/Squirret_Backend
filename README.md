@@ -16,7 +16,6 @@
 src/main/java/com/squirret/squirretbackend/
 ├── controller/
 │   ├── GuestController.java          # 게스트 세션 관리 API
-│   ├── FitnessDataController.java    # 피트니스 데이터 CRUD
 │   ├── FSRController.java            # FSR 데이터 및 피드백
 │   ├── InternalSessionController.java # AI 추론 세션 관리
 │   └── ...
@@ -79,15 +78,6 @@ docker-compose up -d
 - `GET /api/guest/session/{guestId}` - 게스트 세션 조회
 - `GET /api/guest/health` - 헬스 체크
 
-### 피트니스 데이터
-- `POST /api/fitness/save` - 피트니스 데이터 저장
-- `GET /api/fitness/{userId}` - 사용자 피트니스 데이터 조회
-- `GET /api/fitness/{userId}/workouts/{workoutId}` - 운동 기록 조회
-- `PUT /api/fitness/{userId}` - 피트니스 데이터 업데이트
-- `PUT /api/fitness/{userId}/workouts/{workoutId}` - 운동 기록 업데이트
-- `DELETE /api/fitness/{userId}` - 피트니스 데이터 삭제
-- `DELETE /api/fitness/{userId}/workouts/{workoutId}` - 운동 기록 삭제
-
 ### FSR 데이터
 - `POST /api/fsr_data` - FSR 데이터 수신
 - `GET /api/fsr_data/latest` - 최신 FSR 데이터 조회
@@ -99,9 +89,6 @@ docker-compose up -d
   - 요청 본문: `{ "userId": "게스트ID", "fastApiSessionId": "FastAPI에서 발급받은 세션ID" }`
   - 응답: `{ "sessionId": "Spring 세션 ID", "fastApiUrl": null, "fastApiSessionId": "FastAPI 세션 ID" }`
 - `POST /api/session/{sessionId}/finish` - 세션 완료 (Spring 세션 ID 사용)
-
-### 세션 업그레이드
-- `POST /auth/upgrade` - 세션 업그레이드 (게스트 ID 기반)
 
 ## 게스트 모드 특징
 
@@ -149,15 +136,19 @@ curl -X POST http://localhost:8080/api/session \
 }
 ```
 
-### 피트니스 데이터 저장
+### FSR 데이터 업로드 예시
 
 ```bash
-curl -X POST http://localhost:8080/api/fitness/save \
+curl -X POST http://localhost:8080/api/fsr_data \
   -H "Content-Type: application/json" \
   -d '{
-    "userID": "550e8400-e29b-41d4-a716-446655440000",
-    "totalWorkouts": 10,
-    "workoutRecordList": [...]
+    "side": "left",
+    "ratio1": 15.2,
+    "ratio2": 7.5,
+    "ratio3": 3.1,
+    "ratio4": 25.4,
+    "ratio5": 30.0,
+    "ratio6": 18.8
   }'
 ```
 
