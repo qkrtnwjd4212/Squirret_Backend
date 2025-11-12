@@ -7,9 +7,8 @@
 * **WS Base**: `ws://54.86.161.187:8080`
 * **Content-Type**: `application/json; charset=utf-8`
 * **인증**: 
-  - WebSocket(STOMP) 접속 시 `?token=<wsToken>` (게스트/유저 공통)
-  - REST API는 현재 공개 (향후 Bearer 토큰 예정)
-  - OAuth2 지원: 카카오, 네이버, 애플, 구글
+  - WebSocket(STOMP) 접속 시 `?token=<wsToken>` (게스트 모드)
+  - REST API는 현재 공개 (게스트 모드)
 * **시간**: Unix epoch sec (밀리초) 또는 ISO-8601
 * **데이터베이스**: MySQL (54.86.161.187:3306/squirretDB)
 * **오류 포맷(공통)**:
@@ -662,7 +661,7 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
 - **프레임워크**: Spring Boot (Java)
 - **데이터베이스**: MySQL
 - **WebSocket**: STOMP (Spring WebSocket Message Broker)
-- **인증**: JWT + OAuth2 (카카오, 네이버, 애플, 구글)
+- **인증**: 게스트 모드 (사용자 인증 없음, JWT는 FastAPI 통신용으로만 사용)
 - **외부 연동**: FastAPI Squat AI Service (REST API)
 
 ### 9.2 주요 컴포넌트
@@ -715,13 +714,13 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
 
 * **JwtService**
   - JWT 토큰 생성/검증 (FastAPI 통신용으로만 사용)
-  - 일반 토큰: 24시간, 리프레시 토큰: 7일
+  - 토큰 만료: 24시간
 
 #### 9.2.3 WebSocket 설정
 
 * **STOMP WebSocket** (`/ws`)
   - 엔드포인트: `ws://54.86.161.187:8080/ws?token=<wsToken>`
-  - JWT 토큰 인증 (WsJwtHandshakeInterceptor)
+  - 게스트 모드: 토큰 없이도 연결 가능 (게스트 ID 자동 생성)
   - Principal 설정 (WsPrincipalHandshakeHandler)
   - 구독: `/user/queue/session`
   - 송신: `/app/session.message`
@@ -734,7 +733,6 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
 #### 9.2.4 데이터베이스
 
 * **MySQL 스키마**:
-  - `User`: 사용자 정보
   - `WsSession`: WebSocket 세션 정보
   - `WsMessageLog`: WebSocket 메시지 로그
   - `WsIdentity`: WebSocket 인증 정보
@@ -744,9 +742,8 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
 * **application.yml**:
   - 서버 포트: 8080
   - 데이터베이스: MySQL (54.86.161.187:3306)
-  - JWT 설정: secret, expiration
+  - JWT 설정: secret, expiration (FastAPI 통신용으로만 사용)
   - FastAPI Base URL: 환경 변수 또는 기본값
-  - OAuth2 클라이언트 설정 (카카오, 네이버, 애플, 구글)
 
 ### 9.3 피드백 처리 흐름
 
@@ -801,29 +798,17 @@ Spring이 이를 기존 `ai` 형식(`lumbar`, `knee`, `ankle`)으로 변환하�
   - WebSocket 연결/해제
 
 * **로그 레벨**:
-  - Spring Security: INFO
   - 애플리케이션: DEBUG/INFO/ERROR
 
 ### 9.7 환경 변수
 
 ```bash
-# OAuth2 클라이언트
-KAKAO_CLIENT_ID=...
-KAKAO_CLIENT_SECRET=...
-NAVER_CLIENT_ID=...
-NAVER_CLIENT_SECRET=...
-APPLE_SERVICE_ID=...
-APPLE_CLIENT_SECRET_JWT=...
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-
 # FastAPI 연동
 FASTAPI_BASE_URL=https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io
 
-# JWT
+# JWT (FastAPI 통신용으로만 사용)
 JWT_SECRET=mySecretKey123456789012345678901234567890
 JWT_EXPIRATION=86400000  # 24시간
-JWT_REFRESH_EXPIRATION=604800000  # 7일
 ```
 
 ### 9.8 배포 정보
