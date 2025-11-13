@@ -6,7 +6,7 @@
 - Stomp WS: `ws://54.86.161.187:8080/ws`
 - Pure WebSocket(FSR): `ws://54.86.161.187:8080/ws/fsr-data`
 - Content-Type: `application/json; charset=utf-8`
-- 인증: 게스트 모드 (REST 공개, STOMP 연결 시 자동 게스트 ID)
+- 인증: 별도 로그인 없이 사용하는 게스트 모드이며, REST API는 공개되어 있고 STOMP 연결 시 서버가 자동으로 게스트 ID를 발급합니다.
 
 ## 2. 테스트 체크리스트
 ### 2.1 1초 측정값 & 10초 피드백 확인
@@ -40,25 +40,3 @@
 - `POST /api/session` : FastAPI 세션 등록.
 - `POST /api/internal/inference/{fastApiSessionId}/feedback` : FastAPI 분석 결과 수신.
 - `POST /api/session/{sessionId}/finish` : 세션 종료 통계 저장.
-
-## 4. cURL 스니펫
-```bash
-# 게스트 세션
-curl -s -X POST http://54.86.161.187:8080/api/guest/session | jq
-
-# FSR 업로드 (좌)
-curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"side":"left","ratio1":12.3,"ratio2":8.4,"ratio3":5.1,"ratio4":20.0,"ratio5":32.5,"ratio6":21.7}' \
-  http://54.86.161.187:8080/api/fsr_data
-
-# 최신 스냅샷
-curl -s http://54.86.161.187:8080/api/fsr_data/latest | jq
-
-# 통합 피드백
-curl -s http://54.86.161.187:8080/api/fsr_data/feedback/combined | jq
-
-# AI 상태 입력
-curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"lumbar":"good","knee":"bad","ankle":"null"}' \
-  http://54.86.161.187:8080/internal/ai/status | jq
-```
