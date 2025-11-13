@@ -2,6 +2,7 @@ package com.squirret.squirretbackend.controller;
 
 import com.squirret.squirretbackend.dto.CombinedFeedbackResponse;
 import com.squirret.squirretbackend.dto.FSRDataDTO;
+import com.squirret.squirretbackend.dto.FSRLatestResponse;
 import com.squirret.squirretbackend.dto.FsrFeedbackResponse;
 import com.squirret.squirretbackend.service.FSRDataService;
 import com.squirret.squirretbackend.service.PostureFeedbackService;
@@ -33,8 +34,8 @@ public class FSRController {
 
     // GET 요청 시 데이터 전송하는 엔드포인트 (좌/우 데이터 모두 포함)
     @GetMapping("/fsr_data/latest")
-    public ResponseEntity<Map<String, FSRDataDTO>> getLatestFsrData() {
-        return ResponseEntity.ok(fsrDataService.getLatestInsoleData());
+    public ResponseEntity<FSRLatestResponse> getLatestFsrData() {
+        return ResponseEntity.ok(fsrDataService.getLatestInsoleDataAsResponse());
     }
 
     // 종합 자세 피드백 (양발 데이터 기반)

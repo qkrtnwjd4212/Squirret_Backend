@@ -1,6 +1,7 @@
 package com.squirret.squirretbackend.service;
 
 import com.squirret.squirretbackend.dto.FSRDataDTO;
+import com.squirret.squirretbackend.dto.FSRMetricsDTO;
 import com.squirret.squirretbackend.dto.FsrFeedbackResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -8,7 +9,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -33,7 +33,7 @@ public class PostureFeedbackService {
                     .stage("UNKNOWN")
                     .status("NO_DATA")
                     .feedback("데이터 수집 중입니다")
-                    .metrics(Map.of())
+                    .metrics(null)
                     .build();
         }
 
@@ -44,14 +44,15 @@ public class PostureFeedbackService {
 
         StageResult finalStage = chooseStage(descent, ascent);
 
-        Map<String, Float> metricMap = new LinkedHashMap<>();
-        metricMap.put("front", combined.front);
-        metricMap.put("rear", combined.rear);
-        metricMap.put("inner", combined.inner);
-        metricMap.put("outer", combined.outer);
-        metricMap.put("heel", combined.heel);
-        metricMap.put("innerOuterDiff", combined.innerOuterDiff);
-        metricMap.put("leftRightDiff", combined.leftRightDiff);
+        FSRMetricsDTO metrics = FSRMetricsDTO.builder()
+                .front(combined.front)
+                .rear(combined.rear)
+                .inner(combined.inner)
+                .outer(combined.outer)
+                .heel(combined.heel)
+                .innerOuterDiff(combined.innerOuterDiff)
+                .leftRightDiff(combined.leftRightDiff)
+                .build();
 
         String feedback;
         if (finalStage.messages.isEmpty()) {
@@ -68,7 +69,7 @@ public class PostureFeedbackService {
                 .stage(finalStage.stage)
                 .status(finalStage.messages.isEmpty() ? "GOOD" : "BAD")
                 .feedback(feedback)
-                .metrics(metricMap)
+                .metrics(metrics)
                 .build();
     }
     

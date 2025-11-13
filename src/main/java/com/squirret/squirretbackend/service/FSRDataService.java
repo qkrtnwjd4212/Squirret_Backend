@@ -1,6 +1,7 @@
 package com.squirret.squirretbackend.service;
 
 import com.squirret.squirretbackend.dto.FSRDataDTO;
+import com.squirret.squirretbackend.dto.FSRLatestResponse;
 import com.squirret.squirretbackend.handler.FSRWebSocketHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
@@ -56,6 +57,11 @@ public class FSRDataService {
 
     public Map<String, FSRDataDTO> getLatestInsoleData() {
         return getLatestInsoleData(false);
+    }
+
+    public FSRLatestResponse getLatestInsoleDataAsResponse() {
+        Map<String, FSRDataDTO> data = getLatestInsoleData(false);
+        return new FSRLatestResponse(data.get("left"), data.get("right"));
     }
 
     public Map<String, FSRDataDTO> getLatestInsoleData(boolean fillEmptyWithZero) {

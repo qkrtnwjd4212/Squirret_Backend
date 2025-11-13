@@ -1,5 +1,6 @@
 package com.squirret.squirretbackend.service;
 
+import com.squirret.squirretbackend.dto.AIRawDTO;
 import com.squirret.squirretbackend.dto.CombinedFeedbackResponse;
 import com.squirret.squirretbackend.dto.FsrFeedbackResponse;
 import lombok.RequiredArgsConstructor;
@@ -7,7 +8,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -46,25 +46,38 @@ public class UnifiedFeedbackService {
             return CombinedFeedbackResponse.AiFeedback.empty();
         }
 
-        Map<String, String> normalized = new LinkedHashMap<>();
-        snapshot.forEach((k, v) -> {
-            if (v != null) {
-                normalized.put(k, v.toLowerCase());
-            }
-        });
+        // Map을 AIRawDTO로 변환
+        AIRawDTO raw = AIRawDTO.builder()
+                .lumbar(normalizeValue(snapshot.get("lumbar")))
+                .knee(normalizeValue(snapshot.get("knee")))
+                .ankle(normalizeValue(snapshot.get("ankle")))
+                .build();
 
         List<String> messages = new ArrayList<>();
         boolean hasBad = false;
         boolean hasGood = false;
 
-        for (Map.Entry<String, String> entry : normalized.entrySet()) {
-            String region = entry.getKey();
-            String value = entry.getValue();
-
-            if ("bad".equals(value)) {
+        if (raw.getLumbar() != null) {
+            if ("bad".equals(raw.getLumbar())) {
                 hasBad = true;
-                messages.add(messageFor(region));
-            } else if ("good".equals(value)) {
+                messages.add(messageFor("lumbar"));
+            } else if ("good".equals(raw.getLumbar())) {
+                hasGood = true;
+            }
+        }
+        if (raw.getKnee() != null) {
+            if ("bad".equals(raw.getKnee())) {
+                hasBad = true;
+                messages.add(messageFor("knee"));
+            } else if ("good".equals(raw.getKnee())) {
+                hasGood = true;
+            }
+        }
+        if (raw.getAnkle() != null) {
+            if ("bad".equals(raw.getAnkle())) {
+                hasBad = true;
+                messages.add(messageFor("ankle"));
+            } else if ("good".equals(raw.getAnkle())) {
                 hasGood = true;
             }
         }
@@ -83,9 +96,13 @@ public class UnifiedFeedbackService {
 
         return CombinedFeedbackResponse.AiFeedback.builder()
                 .status(status)
-                .raw(normalized)
+                .raw(raw)
                 .messages(messages)
                 .build();
+    }
+
+    private String normalizeValue(String value) {
+        return value != null ? value.toLowerCase() : null;
     }
 
     private String messageFor(String region) {

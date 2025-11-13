@@ -1,5 +1,8 @@
 package com.squirret.squirretbackend.controller;
 
+import com.squirret.squirretbackend.dto.AIStatusRequest;
+import com.squirret.squirretbackend.dto.AIStatusResponse;
+import com.squirret.squirretbackend.dto.ErrorResponse;
 import com.squirret.squirretbackend.service.AiStateStore;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
@@ -8,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
+import java.time.LocalDateTime;
 
 @RestController
 @RequestMapping("/internal/ai")
@@ -21,20 +24,28 @@ public class AiInputController {
     }
 
     @PostMapping("/status")
-    public ResponseEntity<?> postStatus(@RequestBody Map<String, String> body) {
-        String lumbar = normalize(body.get("lumbar"));
-        String knee = normalize(body.get("knee"));
-        String ankle = normalize(body.get("ankle"));
+    public ResponseEntity<?> postStatus(@RequestBody AIStatusRequest request) {
+        String lumbar = normalize(request.getLumbar());
+        String knee = normalize(request.getKnee());
+        String ankle = normalize(request.getAnkle());
 
         if (!isValid(lumbar) || !isValid(knee) || !isValid(ankle)) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "error", "InvalidStatus",
-                    "message", "lumbar/knee/ankle must be one of: good, bad, null"
-            ));
+            ErrorResponse error = ErrorResponse.builder()
+                    .timestamp(LocalDateTime.now())
+                    .status(400)
+                    .error("Bad Request")
+                    .code("INVALID_STATUS")
+                    .message("lumbar/knee/ankle must be one of: good, bad, null")
+                    .path("/internal/ai/status")
+                    .build();
+            return ResponseEntity.badRequest().body(error);
         }
 
         store.update(lumbar, knee, ankle);
-        return ResponseEntity.ok(Map.of("ok", true));
+        AIStatusResponse response = AIStatusResponse.builder()
+                .ok(true)
+                .build();
+        return ResponseEntity.ok(response);
     }
 
     private static String normalize(String v) {

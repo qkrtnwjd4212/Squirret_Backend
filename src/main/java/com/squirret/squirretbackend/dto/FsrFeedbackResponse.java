@@ -5,8 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.Map;
-
 @Data
 @Builder
 @NoArgsConstructor
@@ -15,6 +13,6 @@ public class FsrFeedbackResponse {
     private String stage;    // DESCENT, ASCENT, UNKNOWN
     private String status;   // GOOD, BAD, NO_DATA
     private String feedback;
-    private Map<String, Float> metrics; // front, rear, inner, outer, heel, leftRightDiff
+    private FSRMetricsDTO metrics; // front, rear, inner, outer, heel, leftRightDiff
 }
 

@@ -7,7 +7,6 @@ import lombok.NoArgsConstructor;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 @Data
 @Builder
@@ -24,13 +23,13 @@ public class CombinedFeedbackResponse {
     @AllArgsConstructor
     public static class AiFeedback {
         private String status; // GOOD, BAD, NO_DATA
-        private Map<String, String> raw; // lumbar/knee/ankle
+        private AIRawDTO raw; // lumbar/knee/ankle
         private List<String> messages;
 
         public static AiFeedback empty() {
             return AiFeedback.builder()
                     .status("NO_DATA")
-                    .raw(Collections.emptyMap())
+                    .raw(null)
                     .messages(Collections.emptyList())
                     .build();
         }
