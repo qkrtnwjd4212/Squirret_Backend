@@ -30,10 +30,10 @@ jwt:
 fastapi:
   base-url: ${FASTAPI_BASE_URL:https://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io}
 
-# Inference 세션 설정
+# Inference 세션 설정 (사용 안 함 - FastAPI WebSocket은 fastapi.base-url 기반으로 자동 구성)
 inference:
   ws:
-    base-url: ${INFERENCE_WS_BASE_URL:ws://localhost:8000}  # 환경 변수로 설정 가능
+    base-url: ${INFERENCE_WS_BASE_URL:wss://squat-api.blackmoss-f506213d.koreacentral.azurecontainerapps.io}  # 환경 변수로 설정 가능
 
 # SpringDoc OpenAPI (Swagger) 설정
 springdoc:

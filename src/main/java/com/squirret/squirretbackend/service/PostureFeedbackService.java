@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Slf4j
 @Service
@@ -21,18 +22,42 @@ public class PostureFeedbackService {
 
     private final FSRDataService fsrDataService;
 
+    // FSR 데이터가 전혀 들어오지 않을 때 사용할 응원 메시지 목록
+    private static final String[] ENCOURAGEMENT_MESSAGES = {
+            "괜찮아요, 천천히 준비해볼까요?",
+            "좋아요, 몸을 가볍게 풀어볼까요?",
+            "화이팅! 준비가 되면 편하게 시작해 주세요.",
+            "잘하고 있어요, 호흡을 가다듬어 볼까요?",
+            "지금도 충분히 잘하고 있어요!",
+            "조금 쉬었다가 다시 시작해도 괜찮아요.",
+            "지금 페이스 좋아요, 그대로 이어가볼까요?",
+            "몸의 긴장을 천천히 풀어보세요.",
+            "오늘도 여기까지 온 것만으로도 충분히 대단해요.",
+            "서두르지 말고, 편한 속도로 움직여볼까요?"
+    };
+
+    /**
+     * 랜덤한 응원 메시지 반환
+     */
+    private String getRandomEncouragement() {
+        int idx = ThreadLocalRandom.current().nextInt(ENCOURAGEMENT_MESSAGES.length);
+        return ENCOURAGEMENT_MESSAGES[idx];
+    }
+
     public FsrFeedbackResponse getOverallFeedback() {
         Map<String, FSRDataDTO> averaged = fsrDataService.getAveragedInsoleData(FEEDBACK_WINDOW);
         FSRDataDTO leftData = averaged.get("left");
         FSRDataDTO rightData = averaged.get("right");
 
-        // 양발 데이터가 모두 없으면 NO_DATA 반환
+        // 양발 데이터가 모두 없으면 NO_DATA + 응원 메시지 반환 (fallback 응답)
         if ((leftData == null || leftData.getSide() == null) && 
             (rightData == null || rightData.getSide() == null)) {
+            log.warn("⚠️ FSR 데이터 없음 - fallback 응답 반환 (mode: NO_DATA)");
+            String feedback = limitFeedbackLength(getRandomEncouragement(), 25);
             return FsrFeedbackResponse.builder()
                     .stage("UNKNOWN")
                     .status("NO_DATA")
-                    .feedback("데이터 수집 중입니다")
+                    .feedback(feedback)
                     .metrics(null)
                     .build();
         }

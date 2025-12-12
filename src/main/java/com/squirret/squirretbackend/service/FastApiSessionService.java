@@ -1,5 +1,7 @@
 package com.squirret.squirretbackend.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.squirret.squirretbackend.dto.InferenceFeedbackDto;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -25,6 +27,7 @@ public class FastApiSessionService {
     private String fastApiBaseUrl;
 
     private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
     
     public String getFastApiBaseUrl() {
         return fastApiBaseUrl;
@@ -32,6 +35,7 @@ public class FastApiSessionService {
 
     public FastApiSessionService() {
         this.restTemplate = new RestTemplate();
+        this.objectMapper = new ObjectMapper();
     }
 
     /**
@@ -113,6 +117,75 @@ public class FastApiSessionService {
             log.error("FastAPI 세션 삭제 오류: sessionId={}", fastApiSessionId, e);
             return false;
         }
+    }
+
+    /**
+     * FastAPI에서 최신 피드백/분석 결과 가져오기 (Polling 방식)
+     * 
+     * @param fastApiSessionId FastAPI 세션 ID
+     * @return InferenceFeedbackDto 객체 (없으면 null)
+     */
+    public InferenceFeedbackDto getFastApiFeedback(String fastApiSessionId) {
+        // FastAPI 피드백 조회 API 엔드포인트 (예시: /api/session/{sessionId}/feedback 또는 /api/session/{sessionId}/latest)
+        String url = fastApiBaseUrl + "/api/session/" + fastApiSessionId + "/feedback";
+
+        try {
+            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                String jsonBody = response.getBody();
+                log.debug("FastAPI 피드백 조회 성공: sessionId={}, response={}", fastApiSessionId, jsonBody);
+                
+                // JSON을 InferenceFeedbackDto로 변환
+                try {
+                    InferenceFeedbackDto feedback = objectMapper.readValue(jsonBody, InferenceFeedbackDto.class);
+                    return feedback;
+                } catch (Exception e) {
+                    log.warn("FastAPI 피드백 JSON 파싱 실패: sessionId={}, error={}", fastApiSessionId, e.getMessage());
+                    return null;
+                }
+            } else {
+                log.debug("FastAPI 피드백 조회 실패: sessionId={}, status={}", 
+                    fastApiSessionId, response.getStatusCode());
+                return null;
+            }
+        } catch (Exception e) {
+            log.debug("FastAPI 피드백 조회 오류 (피드백 없을 수 있음): sessionId={}, error={}", 
+                fastApiSessionId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * FastAPI에서 최신 분석 결과 가져오기 (다른 엔드포인트 시도)
+     * 
+     * @param fastApiSessionId FastAPI 세션 ID
+     * @return 분석 결과 JSON 문자열
+     */
+    public String getFastApiLatestResult(String fastApiSessionId) {
+        // 대안 엔드포인트: /api/session/{sessionId}/latest 또는 /api/session/{sessionId}/result
+        String[] possibleEndpoints = {
+            "/api/session/" + fastApiSessionId + "/latest",
+            "/api/session/" + fastApiSessionId + "/result",
+            "/api/session/" + fastApiSessionId + "/analysis"
+        };
+
+        for (String endpoint : possibleEndpoints) {
+            try {
+                String url = fastApiBaseUrl + endpoint;
+                ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    log.info("FastAPI 분석 결과 조회 성공: sessionId={}, endpoint={}", 
+                        fastApiSessionId, endpoint);
+                    return response.getBody();
+                }
+            } catch (Exception e) {
+                log.debug("FastAPI 엔드포인트 시도 실패: endpoint={}, error={}", 
+                    endpoint, e.getMessage());
+            }
+        }
+        
+        log.warn("FastAPI 분석 결과 조회 실패: sessionId={}, 모든 엔드포인트 시도 실패", fastApiSessionId);
+        return null;
     }
 }
 

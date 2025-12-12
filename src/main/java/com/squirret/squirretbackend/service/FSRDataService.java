@@ -39,6 +39,7 @@ public class FSRDataService {
 
         FSRDataDTO copy = copyOf(newData);
         long now = System.currentTimeMillis();
+        copy.setTimestamp(now); // 타임스탬프 설정
 
         if ("left".equalsIgnoreCase(copy.getSide())) {
             latestLeftData.set(copy);
@@ -52,7 +53,8 @@ public class FSRDataService {
 
         Map<String, FSRDataDTO> latestData = getLatestInsoleData(true);
         fsrWebSocketHandler.broadcastFSRData(latestData);
-        log.debug("FSR 데이터 업데이트 및 웹소켓 브로드캐스트: {}", copy.getSide());
+        log.debug("FSR 데이터 업데이트 및 웹소켓 브로드캐스트: side={}, timestamp={}", 
+            copy.getSide(), now);
     }
 
     public Map<String, FSRDataDTO> getLatestInsoleData() {
@@ -141,20 +143,36 @@ public class FSRDataService {
     private FSRDataDTO emptyWithSide(String side) {
         FSRDataDTO dto = new FSRDataDTO();
         dto.setSide(side);
+        dto.setTimestamp(System.currentTimeMillis()); // 빈 데이터에도 타임스탬프 설정
         return dto;
     }
 
     private FSRDataDTO copyOf(FSRDataDTO source) {
         FSRDataDTO copy = new FSRDataDTO();
         copy.setSide(source.getSide());
+        
+        // ratio
         copy.setRatio1(source.getRatio1());
         copy.setRatio2(source.getRatio2());
         copy.setRatio3(source.getRatio3());
         copy.setRatio4(source.getRatio4());
         copy.setRatio5(source.getRatio5());
         copy.setRatio6(source.getRatio6());
+    
+        // voltage 추가
+        copy.setVoltage1(source.getVoltage1());
+        copy.setVoltage2(source.getVoltage2());
+        copy.setVoltage3(source.getVoltage3());
+        copy.setVoltage4(source.getVoltage4());
+        copy.setVoltage5(source.getVoltage5());
+        copy.setVoltage6(source.getVoltage6());
+        
+        // timestamp 복사
+        copy.setTimestamp(source.getTimestamp());
+    
         return copy;
     }
+    
 
     private static class FsrSample {
         private final long timestamp;

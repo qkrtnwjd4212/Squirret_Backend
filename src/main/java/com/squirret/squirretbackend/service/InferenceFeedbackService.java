@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * FastAPI에서 받은 피드백을 앱으로 전달하는 서비스
@@ -20,6 +21,51 @@ public class InferenceFeedbackService {
     private final InferenceSessionService inferenceSessionService;
     private final SimpMessagingTemplate messagingTemplate;
     private final AiStateStore aiStateStore;
+    private final FeedbackHistoryService feedbackHistoryService;
+
+    // 금지/치환 대상 문구 (부분 일치도 허용)
+    private static final String[] BLOCKED_PHRASES = {
+        "데이터 수집 중입니다",
+        "데이터 수집중입니다",
+        "데이터를 수집중입니다",
+        "데이터 수집",
+        "데이터수집" // 형태가 조금 달라도 잡히도록 키워드 추가
+    };
+
+    // FastAPI 피드백 치환에 사용할 응원/안내 문구
+    private static final String[] ENCOURAGEMENT_MESSAGES = {
+        "괜찮아요, 천천히 준비해볼까요?",
+        "좋아요, 몸을 가볍게 풀어볼까요?",
+        "화이팅! 준비가 되면 편하게 시작해 주세요.",
+        "지금 페이스 좋아요, 편하게 이어가봐요.",
+        "충분히 잘하고 있어요, 서두르지 않아도 돼요."
+    };
+
+    /**
+     * FastAPI에서 넘어온 원본 피드백 텍스트를 앱으로 보내기 전에 정제
+     * - "데이터 수집 중입니다" 계열 문구는 응원 메시지로 치환
+     */
+    private String sanitizeFeedbackText(String text) {
+        if (text == null) {
+            return null;
+        }
+        // 실제로 어떤 원문 코멘트가 들어오는지 확인하기 위한 로그
+        log.info("🔎 sanitizeFeedbackText raw='{}'", text);
+
+        String trimmed = text.trim();
+        for (String blocked : BLOCKED_PHRASES) {
+            // 전체 일치 또는 부분 포함 모두 차단
+            if (trimmed.equals(blocked) || trimmed.contains(blocked)) {
+                int n = ENCOURAGEMENT_MESSAGES.length;
+                if (n == 0) {
+                    return "";
+                }
+                int idx = ThreadLocalRandom.current().nextInt(n);
+                return ENCOURAGEMENT_MESSAGES[idx];
+            }
+        }
+        return text;
+    }
 
     /**
      * FastAPI에서 받은 피드백을 앱으로 전달
@@ -42,17 +88,24 @@ public class InferenceFeedbackService {
                 // 분석 결과를 DATA 형식으로 전송
                 sendAnalysisResult(userId, feedback);
                 
-                // AI 상태 업데이트
+                // AI 상태 업데이트 (세션별 관리)
                 Map<String, String> aiData = feedback.getAi();
                 if (aiData == null && feedback.getChecks() != null) {
                     aiData = convertChecksToAi(feedback.getChecks());
+                    log.info("📊 FastAPI checks를 AI 형식으로 변환: checks={} -> ai={}", 
+                        feedback.getChecks(), aiData);
                 }
-                if (aiData != null) {
+                if (aiData != null && !aiData.isEmpty()) {
+                    log.info("💾 AI 상태 저장 시도: userId={}, aiData={}", userId, aiData);
                     aiStateStore.update(
+                        userId, // 세션별 상태 관리
                         aiData.getOrDefault("lumbar", null),
                         aiData.getOrDefault("knee", null),
                         aiData.getOrDefault("ankle", null)
                     );
+                } else {
+                    log.warn("⚠️ AI 데이터가 없어 상태 업데이트를 건너뜁니다: userId={}, feedback={}", 
+                        userId, feedback);
                 }
                 
                 // checks 기반으로 피드백 메시지 생성 및 전송 (25자 제한)
@@ -191,14 +244,25 @@ public class InferenceFeedbackService {
         Map<String, Object> message = new HashMap<>();
         message.put("type", "voice");
         
-        String feedbackText = feedback.getFeedback() != null ? feedback.getFeedback() : "피드백이 없습니다.";
-        message.put("text", limitFeedbackLength(feedbackText, 25));
+        String raw = feedback.getFeedback() != null ? feedback.getFeedback() : "피드백이 없습니다.";
+        String feedbackText = sanitizeFeedbackText(raw);
+        String limited = limitFeedbackLength(feedbackText, 25);
+
+        // 30초 쿨타임: 같은 문장은 30초 동안 다시 보내지 않음
+        if (feedbackHistoryService.isUnderCooldown(userId, limited, 30_000L)) {
+            log.debug("피드백 쿨타임으로 전송 스킵 (feedback): userId={}, text={}", userId, limited);
+            return;
+        }
+
+        message.put("text", limited);
         
         if (feedback.getTimestamp() != null) {
             message.put("timestamp", feedback.getTimestamp());
         }
         
         messagingTemplate.convertAndSendToUser(userId, "/queue/session", message);
+        // 마지막 피드백 & 전송 시각 저장
+        feedbackHistoryService.markSent(userId, (String) message.get("text"));
     }
 
     /**
@@ -210,7 +274,15 @@ public class InferenceFeedbackService {
         message.put("type", feedback.getType() != null ? feedback.getType() : "MESSAGE");
         
         if (feedback.getFeedback() != null) {
-            message.put("text", limitFeedbackLength(feedback.getFeedback(), 25));
+            String sanitized = sanitizeFeedbackText(feedback.getFeedback());
+            String limited = limitFeedbackLength(sanitized, 25);
+
+            if (feedbackHistoryService.isUnderCooldown(userId, limited, 30_000L)) {
+                log.debug("피드백 쿨타임으로 전송 스킵 (generic): userId={}, text={}", userId, limited);
+                return;
+            }
+
+            message.put("text", limited);
         }
         
         if (feedback.getAi() != null) {
@@ -226,6 +298,9 @@ public class InferenceFeedbackService {
         }
         
         messagingTemplate.convertAndSendToUser(userId, "/queue/session", message);
+        if (message.containsKey("text")) {
+            feedbackHistoryService.markSent(userId, (String) message.get("text"));
+        }
     }
     
     /**
@@ -267,7 +342,14 @@ public class InferenceFeedbackService {
     private void sendVoiceFeedback(String userId, String feedbackText, Long timestamp) {
         Map<String, Object> message = new HashMap<>();
         message.put("type", "voice");
-        message.put("text", limitFeedbackLength(feedbackText, 25));
+        String limited = limitFeedbackLength(feedbackText, 25);
+
+        if (feedbackHistoryService.isUnderCooldown(userId, limited, 30_000L)) {
+            log.debug("피드백 쿨타임으로 전송 스킵 (voice): userId={}, text={}", userId, limited);
+            return;
+        }
+
+        message.put("text", limited);
         
         if (timestamp != null) {
             message.put("timestamp", timestamp);
@@ -276,6 +358,7 @@ public class InferenceFeedbackService {
         }
         
         messagingTemplate.convertAndSendToUser(userId, "/queue/session", message);
+        feedbackHistoryService.markSent(userId, (String) message.get("text"));
     }
     
     /**

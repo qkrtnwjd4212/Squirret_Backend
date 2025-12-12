@@ -41,7 +41,9 @@ public class AiInputController {
             return ResponseEntity.badRequest().body(error);
         }
 
-        store.update(lumbar, knee, ankle);
+        // 내부 테스트/디버깅용 엔드포인트이므로, 고정 userId를 사용해 전역 상태처럼 취급
+        // 실제 서비스에서는 세션/게스트 ID 기반으로 분리된 상태를 사용하는 것을 권장
+        store.update("internal-ai", lumbar, knee, ankle);
         AIStatusResponse response = AIStatusResponse.builder()
                 .ok(true)
                 .build();

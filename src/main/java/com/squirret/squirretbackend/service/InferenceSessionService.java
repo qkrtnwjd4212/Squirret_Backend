@@ -65,6 +65,25 @@ public class InferenceSessionService {
                 .orElse(null);
     }
 
+    /**
+     * Spring 세션 ID로 FastAPI 세션 ID 조회
+     * 
+     * @param springSessionId Spring 세션 ID
+     * @return FastAPI 세션 ID (없으면 null)
+     */
+    public String getFastApiSessionIdBySpringSessionId(String springSessionId) {
+        SessionInfo info = sessions.get(springSessionId);
+        if (info == null) {
+            return null;
+        }
+        // 만료 확인
+        if (Instant.now().isAfter(info.getCreatedAt().plus(SESSION_TTL))) {
+            sessions.remove(springSessionId);
+            return null;
+        }
+        return info.getFastApiSessionId();
+    }
+
     public void finishSession(String sessionId, SessionStats stats) {
         SessionInfo info = sessions.get(sessionId);
         if (info == null) {
@@ -77,6 +96,7 @@ public class InferenceSessionService {
         log.info("세션 완료: sessionId={}, stats={}", sessionId, stats);
         
         // 세션은 TTL 후 자동 삭제되도록 유지 (나중에 Redis로 이동 시 TTL 활용)
+        // WebSocket 연결은 InternalSessionController에서 종료 처리
     }
 
     public boolean isSessionActive(String sessionId) {
@@ -110,6 +130,26 @@ public class InferenceSessionService {
             return null;
         }
         return info.getUserId();
+    }
+
+    /**
+     * 활성 FastAPI 세션 ID 목록 조회 (Polling용)
+     * @return 활성 상태인 FastAPI 세션 ID Set
+     */
+    public java.util.Set<String> getActiveFastApiSessions() {
+        java.util.Set<String> activeSessions = new java.util.HashSet<>();
+        Instant now = Instant.now();
+        
+        sessions.values().forEach(info -> {
+            // 만료되지 않고 활성 상태인 세션만
+            if (info.getStatus() == SessionStatus.ACTIVE && 
+                !now.isAfter(info.getCreatedAt().plus(SESSION_TTL)) &&
+                info.getFastApiSessionId() != null) {
+                activeSessions.add(info.getFastApiSessionId());
+            }
+        });
+        
+        return activeSessions;
     }
 
     /**

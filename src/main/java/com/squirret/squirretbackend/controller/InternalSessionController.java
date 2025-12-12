@@ -23,6 +23,7 @@ public class InternalSessionController {
 
     private final InferenceSessionService inferenceSessionService;
     private final InferenceFeedbackService inferenceFeedbackService;
+    private final com.squirret.squirretbackend.service.FastApiWebSocketClient fastApiWebSocketClient;
 
     /**
      * 게스트 세션 발급 (기존 STOMP용)
@@ -60,6 +61,18 @@ public class InternalSessionController {
         
         InferenceSessionService.CreateSessionResponse response = 
             inferenceSessionService.registerFastApiSession(userId, fastApiSessionId);
+        
+        // WebSocket 연결 시도
+        String springSessionId = response.sessionId();
+        boolean connected = fastApiWebSocketClient.connect(springSessionId, fastApiSessionId);
+        if (connected) {
+            log.info("FastAPI WebSocket 연결 성공: springSessionId={}, fastApiSessionId={}", 
+                springSessionId, fastApiSessionId);
+        } else {
+            log.warn("FastAPI WebSocket 연결 실패: springSessionId={}, fastApiSessionId={}", 
+                springSessionId, fastApiSessionId);
+        }
+        
         return ResponseEntity.ok(response);
     }
 
@@ -78,6 +91,10 @@ public class InternalSessionController {
         InferenceSessionService.SessionStats stats = new InferenceSessionService.SessionStats(
                 framesIn, framesOut, durationSeconds);
         inferenceSessionService.finishSession(sessionId, stats);
+        
+        // 세션 종료 시 FastAPI WebSocket 연결도 종료
+        fastApiWebSocketClient.disconnect(sessionId);
+        log.info("세션 종료 시 WebSocket 연결 종료: sessionId={}", sessionId);
         
         SessionFinishResponse response = SessionFinishResponse.builder()
                 .status("completed")
@@ -99,7 +116,8 @@ public class InternalSessionController {
     public ResponseEntity<?> receiveFeedback(
             @PathVariable String fastApiSessionId,
             @RequestBody InferenceFeedbackDto feedback) {
-        log.info("FastAPI에서 피드백 수신: fastApiSessionId={}, type={}", fastApiSessionId, feedback.getType());
+        log.info("📥 FastAPI에서 피드백 수신: fastApiSessionId={}, type={}, state={}, checks={}", 
+            fastApiSessionId, feedback.getType(), feedback.getState(), feedback.getChecks());
         
         // FastAPI sessionId로 Spring sessionId 조회
         String springSessionId = inferenceSessionService.getSpringSessionIdByFastApiSessionId(fastApiSessionId);

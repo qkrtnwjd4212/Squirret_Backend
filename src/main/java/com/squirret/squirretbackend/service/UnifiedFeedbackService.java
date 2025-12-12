@@ -10,6 +10,7 @@ import org.springframework.util.CollectionUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 @RequiredArgsConstructor
@@ -26,7 +27,8 @@ public class UnifiedFeedbackService {
 
         List<String> merged = mergeMessages(aiFeedback, fsrFeedback);
         if (merged.isEmpty()) {
-            merged.add(limitFeedbackLength("데이터 수집 중입니다", 25));
+            // AI/FSR 모두 피드백이 없을 때는 안내 문구 대신 응원 메시지 제공 (랜덤)
+            merged.add(limitFeedbackLength(getRandomEncouragement(), 25));
         }
         
         // 모든 메시지를 25자로 제한
@@ -103,6 +105,27 @@ public class UnifiedFeedbackService {
 
     private String normalizeValue(String value) {
         return value != null ? value.toLowerCase() : null;
+    }
+
+    // 통합 피드백에서 사용할 응원 문구 목록
+    private static final String[] ENCOURAGEMENT_MESSAGES = {
+            "괜찮아요, 천천히 준비해볼까요?",
+            "오늘 컨디션 살피면서 가볍게 시작해봐요.",
+            "잘하고 있어요, 몸의 감각을 느껴볼까요?",
+            "호흡을 고르고, 준비되면 천천히 시작해요.",
+            "지금도 충분히 잘하고 있어요, 부담 갖지 마세요."
+    };
+
+    /**
+     * 통합 피드백용 랜덤 응원 문구
+     */
+    private String getRandomEncouragement() {
+        int n = ENCOURAGEMENT_MESSAGES.length;
+        if (n == 0) {
+            return "";
+        }
+        int idx = ThreadLocalRandom.current().nextInt(n);
+        return ENCOURAGEMENT_MESSAGES[idx];
     }
 
     private String messageFor(String region) {
