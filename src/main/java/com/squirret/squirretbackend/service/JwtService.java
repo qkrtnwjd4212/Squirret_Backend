@@ -63,6 +63,23 @@ public class JwtService {
                 .signWith(getSignInKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
+
+    /**
+     * FastAPI 웹소켓용 단기 JWT 토큰 생성 (aud=inference-ws, 짧은 만료 시간)
+     */
+    public String generateInferenceWsToken(String sessionId, long expirationMillis) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("aud", "inference-ws");
+        claims.put("sessionId", sessionId);
+        return Jwts
+                .builder()
+                .setClaims(claims)
+                .setSubject(sessionId)
+                .setIssuedAt(new Date(System.currentTimeMillis()))
+                .setExpiration(new Date(System.currentTimeMillis() + expirationMillis))
+                .signWith(getSignInKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
     
     public boolean isTokenValid(String token, String email) {
         final String username = extractUsername(token);

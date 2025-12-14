@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FSR 데이터 웹소켓 테스트</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button.connect {
+            background-color: #28a745;
+            color: white;
+        }
+        button.disconnect {
+            background-color: #dc3545;
+            color: white;
+        }
+        button:hover {
+            opacity: 0.8;
+        }
+        .data-display {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+        .data-section {
+            margin: 15px 0;
+            padding: 15px;
+            background: white;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .data-section h3 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        .ratio-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .ratio-item:last-child {
+            border-bottom: none;
+        }
+        .log {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            padding: 5px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .timestamp {
+            color: #6c757d;
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 FSR 데이터 웹소켓 테스트</h1>
+        
+        <div id="status" class="status disconnected">
+            연결 상태: 연결 안 됨
+        </div>
+        
+        <div>
+            <button id="connectBtn" class="connect" onclick="connect()">연결</button>
+            <button id="disconnectBtn" class="disconnect" onclick="disconnect()" disabled>연결 해제</button>
+        </div>
+        
+        <div class="data-display" id="dataDisplay" style="display: none;">
+            <div class="data-section">
+                <h3>👈 왼발 데이터</h3>
+                <div id="leftData">
+                    <p style="color: #6c757d;">데이터 대기 중...</p>
+                </div>
+            </div>
+            
+            <div class="data-section">
+                <h3>👉 오른발 데이터</h3>
+                <div id="rightData">
+                    <p style="color: #6c757d;">데이터 대기 중...</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="log">
+            <h3>📋 로그</h3>
+            <div id="logContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/fsr-data`;
+        
+        function log(message) {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            logContainer.insertBefore(entry, logContainer.firstChild);
+        }
+        
+        function updateStatus(connected) {
+            const statusDiv = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const dataDisplay = document.getElementById('dataDisplay');
+            
+            if (connected) {
+                statusDiv.className = 'status connected';
+                statusDiv.textContent = '연결 상태: 연결됨';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                dataDisplay.style.display = 'block';
+            } else {
+                statusDiv.className = 'status disconnected';
+                statusDiv.textContent = '연결 상태: 연결 안 됨';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                dataDisplay.style.display = 'none';
+            }
+        }
+        
+        function displayData(data) {
+            // 왼발 데이터 표시 - side가 없어도 모든 센서를 0으로 표시
+            const leftDataDiv = document.getElementById('leftData');
+            let html = '';
+            for (let i = 1; i <= 6; i++) {
+                const ratio = (data.left && data.left[`ratio${i}`] !== undefined) 
+                    ? data.left[`ratio${i}`] 
+                    : 0;
+                html += `<div class="ratio-item">
+                    <span>센서 ${i}:</span>
+                    <strong>${ratio.toFixed(2)}%</strong>
+                </div>`;
+            }
+            leftDataDiv.innerHTML = html;
+            
+            // 오른발 데이터 표시 - side가 없어도 모든 센서를 0으로 표시
+            const rightDataDiv = document.getElementById('rightData');
+            html = '';
+            for (let i = 1; i <= 6; i++) {
+                const ratio = (data.right && data.right[`ratio${i}`] !== undefined) 
+                    ? data.right[`ratio${i}`] 
+                    : 0;
+                html += `<div class="ratio-item">
+                    <span>센서 ${i}:</span>
+                    <strong>${ratio.toFixed(2)}%</strong>
+                </div>`;
+            }
+            rightDataDiv.innerHTML = html;
+        }
+        
+        function connect() {
+            log(`웹소켓 연결 시도: ${wsUrl}`);
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function(event) {
+                log('✅ 웹소켓 연결 성공!');
+                updateStatus(true);
+            };
+            
+            socket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log('📨 데이터 수신: ' + JSON.stringify(data));
+                    displayData(data);
+                } catch (e) {
+                    log('❌ 데이터 파싱 실패: ' + e.message);
+                }
+            };
+            
+            socket.onerror = function(error) {
+                log('❌ 웹소켓 오류 발생: ' + error);
+            };
+            
+            socket.onclose = function(event) {
+                log('🔌 웹소켓 연결 종료');
+                updateStatus(false);
+            };
+        }
+        
+        function disconnect() {
+            if (socket) {
+                socket.close();
+                socket = null;
+            }
+        }
+        
+        // 페이지 로드 시 자동 연결 (선택사항)
+        // window.onload = function() {
+        //     connect();
+        // };
+    </script>
+</body>
+</html>
+

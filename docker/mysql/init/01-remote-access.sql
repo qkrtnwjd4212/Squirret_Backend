@@ -1,0 +1,6 @@
+-- 원격 접속 허용을 위한 root 사용자 권한 설정
+CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY '1234';
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+
+
