@@ -47,20 +47,26 @@
       <strong>앱 시작화면</strong>
     </td>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/93644feb-36ab-4fba-a69a-d1e7a7c20cb9" width="100%" />
+      <img src="https://github.com/user-attachments/assets/c3ef2c24-2355-4144-8f5f-67a7dda79e13" width="100%" />
       <br/>
       <strong>운동 진입 화면</strong>
     </td>
-    <td align="center">
-      <img src="https://github.com/user-attachments/assets/3194879b-88d2-4d4e-acc0-dca8f8b4c25f" width="100%" />
-      <br/>
-      <strong>운동 중 화면</strong>
-    </td>
+    <td align="center" style="display: flex; flex-direction: column; height: 100%;">
+  <img
+    src="https://github.com/user-attachments/assets/7dc262d4-01ba-4527-8c58-957b450ef4c6"
+    width="100%"
+  />
+  <div style="margin-top: auto;">
+    <strong>운동 중 화면</strong>
+  </div>
+</td>
+
+</td>
   </tr>
 
   <tr>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/1efb49d7-50cd-41e9-8109-2e52f650165e" width="100%" />
+      <img src="https://github.com/user-attachments/assets/7497d328-e52d-4637-8c2a-264fb5de81c1" width="100%" />
       <br/>
       <strong>운동 완료 화면</strong>
     </td>
