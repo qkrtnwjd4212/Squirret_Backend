@@ -32,11 +32,11 @@
 
 ## ✨ 주요 기능 설명
 
-- 카메라 기반 실시간 자세 분석 및 스켈레톤 출력
-- 스마트 인솔을 활용한 부위별 압력 분포 출력
-- 10초마다 자세에 대한 음성 및 시각적 피드백 제공
-- 운동 시 자동 횟수/세트 카운팅
-- 운동 완료 후 결과 데이터 확인
+- 📷 카메라 기반 실시간 자세 분석 및 스켈레톤 출력
+- 🦶 스마트 인솔을 활용한 부위별 압력 분포 출력
+- 💬 10초마다 자세에 대한 음성 및 시각적 피드백 제공
+- 🔢 운동 시 자동 횟수/세트 카운팅
+- 📝 운동 완료 후 결과 데이터 확인
 <br/>
 
 <table>
@@ -81,21 +81,10 @@
 
 ## 🛠️ 기술 스택
 
-> iOS 앱
-> 
-- Swift, SwiftUI, AVFoundation, Combine, Websocket
-
-> 서버
-> 
-- SpringBoot, Java17, MySQL 8.0, Spring Data JPA, Websocket, Docker, Docker Compose
-
-> AI
-> 
-- Google Mediapipe, FastAPI, Websocket, Azure App Service, Github Actions
-
-> Embedded
-> 
-- ESP32 DevKit WROOM-32U * 2, FSR400 * 6, Arduino
+- iOS: Swift, SwiftUI, AVFoundation, Combine, Websocket
+- Server: SpringBoot, Java17, MySQL 8.0, Spring Data JPA, Websocket, Docker, Docker Compose
+- AI: Google Mediapipe, FastAPI, Websocket, Azure App Service, Github Actions
+- Embedded: ESP32 DevKit WROOM-32U * 2, FSR400 * 6, Arduino
 <br/>
 
 <img width="2048" height="1147" alt="image" src="https://github.com/user-attachments/assets/facb6e04-66bb-4220-97af-741efa9454e6" />
