@@ -101,7 +101,7 @@
 
 <table>
   <tr align="center">
-        <td><strong>임베디드</strong></td>
+        <td><strong>임베디드, 백엔드</strong></td>
         <td><strong>백엔드</strong></td>
         <td><strong>iOS</strong></td>
         <td><strong>AI</strong></td>
